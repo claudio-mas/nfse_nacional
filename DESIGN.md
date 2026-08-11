@@ -660,7 +660,10 @@ Sem gates. O caminho está livre para código.
    Fora de escopo por dependência que ainda não existe: o console script
    `nfse-doctor` está comentado no `pyproject.toml` porque `doctor.py` só entra no
    item 8, e declarar entry point antes disso instala um comando que quebra no import.
-4. `ambientes.py` — as quatro bases, com o teste que impede regressão para o ADN.
+4. ~~`ambientes.py` — as quatro bases, com o teste que impede regressão para o ADN.~~
+   **FEITO em 2026-08-11.** `Ambiente` carrega também o `tp_amb` do leiaute. Os guardas
+   foram verificados por mutação: reintroduzir emissão-no-ADN, DANFSe-no-SEFIN e
+   restrita-vazando-para-produção deixa a suíte vermelha nos três casos.
 5. `cert.py` — `from_pfx()` com `cryptography.pkcs12`, `cn`, `validade`, aviso de vencimento
    em menos de 30 dias, `ssl.SSLContext` com write→close→load→unlink em 0600, e detecção de
    PKCS#12 legado (OQ11). Teste com `.pfx` auto-assinado gerado em `conftest.py`.
