@@ -1,6 +1,6 @@
 # Design: nfsenacional — biblioteca Python MIT para o Sistema Nacional NFS-e
 
-Revisão 3 — aprovada em 2026-08-11.
+Revisão 3.1 — aprovada em 2026-08-11.
 Sessão de resolução de gates: OQ1, OQ2, OQ3, OQ4, OQ6 e OQ7 fechados com dado verificado.
 
 ## Problem Statement
@@ -45,13 +45,14 @@ AMBIENTES = {
 }
 ```
 
-São **três** hosts com papéis distintos. Confirmado de forma independente em
+São **quatro** bases com papéis distintos. Confirmado de forma independente em
 `brans-nfe/client.py` e `pynfse-nacional/constants.py`, e coerente com o manual do ADN
 publicado em 12/02/2026:
 
 | Papel | Produção | Produção restrita |
 |---|---|---|
-| **SEFIN** — emitir, consultar NFS-e, `/dps/{id}`, eventos, DANFSe | `https://sefin.nfse.gov.br/SefinNacional` | `https://sefin.producaorestrita.nfse.gov.br/SefinNacional` |
+| **SEFIN** — emitir, consultar NFS-e, `/dps/{id}`, eventos | `https://sefin.nfse.gov.br/SefinNacional` | `https://sefin.producaorestrita.nfse.gov.br/SefinNacional` |
+| **ADN raiz** — DANFSe `GET /danfse/{chave}` | `https://adn.nfse.gov.br` | `https://adn.producaorestrita.nfse.gov.br` |
 | **ADN parametrização** — convênio municipal, alíquotas | `https://adn.nfse.gov.br/parametrizacao` | `https://adn.producaorestrita.nfse.gov.br/parametrizacao` |
 | **ADN contribuintes** — distribuição `GET /DFe/{NSU}`, eventos por chave | `https://adn.nfse.gov.br/contribuintes` | `https://adn.producaorestrita.nfse.gov.br/contribuintes` |
 
@@ -60,6 +61,12 @@ SEFIN. `POST /nfse` no ADN não emite nota nenhuma.
 
 Nota adicional: a rota do convênio é `{ADN}/parametrizacao/{codMun}/convenio`, não
 `/contribuintes/parametros_municipais/{codMun}/convenio` como a revisão 2 registrava.
+
+Segunda nota, corrigida após a revisão 3: o DANFSe **não** fica no SEFIN. As duas libs
+concorrentes montam a URL na raiz do ADN, sem prefixo de caminho — `brans-nfe/client.py:239`
+usa `f"{self.adn_url}/danfse/{chave_acesso}"` com `adn_url` sendo o host nu, e
+`pynfse-nacional/client.py:1269` troca `sefin.` por `adn.` no host antes de concatenar
+`/danfse/{chave}`. São quatro bases, não três.
 
 ## What Makes This Cool
 
@@ -113,7 +120,7 @@ Contrato de request e response, mapeado campo a campo:
 | `POST {SEFIN}/nfse/{chave}/eventos` | `{"pedidoRegistroEventoXmlGZipB64": "..."}` | `{"retEvento": {"cStat": 144, "xMotivo", "idEvento"}}` |
 | `GET {SEFIN}/dps/{id}` | — | `{"chaveAcesso", "idDps", "tipoAmbiente", ...}` |
 | `HEAD {SEFIN}/dps/{id}` | — | 200 existe / 404 não existe |
-| `GET {SEFIN}/danfse/{chave}` | — | PDF binário |
+| `GET {ADN}/danfse/{chave}` | — | PDF binário |
 | `GET {ADN}/contribuintes/DFe/{NSU}` | — | `{"ArquivoXml"/"arquivoXml": "<gzip+b64>"}` |
 
 `Content-Type: application/json`. Os campos de XML sempre vêm gzip+base64 nos dois sentidos.
@@ -205,7 +212,16 @@ concorrentes, e não da documentação.
 
 ### DANFSe (fecha OQ7)
 
-`GET {SEFIN}/danfse/{chave}` existe e devolve o PDF oficial. As duas libs usam.
+`GET {ADN}/danfse/{chave}` existe e devolve o PDF oficial. As duas libs usam, e as duas
+apontam para a **raiz do ADN**, não para o SEFIN e não para `/contribuintes`:
+
+```python
+# brans-nfe/client.py:239   (adn_url = "https://adn.nfse.gov.br", host nu)
+url = f"{self.adn_url}/danfse/{chave_acesso}"
+# pynfse-nacional/client.py:1269
+danfse_base_url = self.base_url.replace("sefin.", "adn.").replace(...)
+```
+
 `brans-nfe` inclusive faz retry em 502/503/504 e levanta `DanfseIndisponivelError`, o que
 sugere que o endpoint é instável — vale registrar como comportamento esperado.
 
@@ -489,7 +505,7 @@ if not conv.aderido:
 
 nfse = client.emitir(dps)                          # fachada, objeto nfelib ou bytes de XML
 doc  = client.consultar(nfse.chave_acesso)
-pdf  = client.baixar_danfse(nfse.chave_acesso)     # GET {SEFIN}/danfse/{chave}
+pdf  = client.baixar_danfse(nfse.chave_acesso)     # GET {ADN}/danfse/{chave}
 
 if client.dps_foi_processada(dps_id):              # HEAD /dps/{id}   -- recuperação P8
     chave = client.chave_por_dps(dps_id)           # GET  /dps/{id}
@@ -630,6 +646,14 @@ Sem gates. O caminho está livre para código.
 
 ## Histórico de revisão
 
+**Revisão 3.1 (2026-08-11)** — correção pontual, sem mudança de decisão:
+
+- **DANFSe estava no host errado.** A revisão 3 registrou `GET {SEFIN}/danfse/{chave}` e
+  afirmou que "as duas libs usam". Verificado na fonte dos dois sdists: as duas apontam para
+  a **raiz do ADN**. `brans-nfe/client.py:239` concatena sobre `adn_url` (host nu, sem
+  `/contribuintes`); `pynfse-nacional/client.py:1269` reescreve `sefin.` → `adn.` antes de
+  concatenar `/danfse/{chave}`. São quatro bases, não três.
+
 **Revisão 3 (2026-08-11)** — sessão de resolução de gates. Mudanças materiais:
 
 - **URL base corrigida** — SEFIN (emissão) e ADN (consulta e parametrização) são hosts
@@ -645,7 +669,7 @@ Sem gates. O caminho está livre para código.
   namespace idêntico, IBS/CBS contido em um arquivo. Não há leiaute obsoleto.
 - **OQ6 resolvido: não** — SEFIN devolve 403 e o ADN derruba a conexão sem certificado
   cliente. O Swagger é inacessível de mesa.
-- **OQ7 resolvido** — `GET {SEFIN}/danfse/{chave}` devolve o PDF oficial. DANFSe sobe para
+- **OQ7 resolvido** — `GET {ADN}/danfse/{chave}` devolve o PDF oficial. DANFSe sobe para
   v0.2.0 e deixa de ser projeto.
 - **Approach C novo e escolhido** — perfil parametrizado com probe empírico no `doctor`,
   motivado pela descoberta de que as duas libs concorrentes escolheram pares opostos.
