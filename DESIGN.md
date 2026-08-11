@@ -640,9 +640,26 @@ Sem gates. O caminho está livre para código.
 2. **Resolver OQ12** — conseguir um certificado ICP-Brasil A1 e confirmar um município
    conveniado. É a maior dependência aberta e a única coisa que impede validar a feature de
    manchete. Comece por aqui em paralelo com o código.
-3. Esqueleto: `pyproject.toml` (hatch, ruff E/F/I/UP, py310, mypy strict, `nfelib` pinado
-   exato), `LICENSE` MIT, `.gitignore`, GitHub Actions, `Schemas/` vendorizado, e
-   `tests/test_nfelib_contract.py` com o round-trip da DPS.
+3. ~~Esqueleto: `pyproject.toml`, `LICENSE` MIT, `.gitignore`, GitHub Actions,
+   `Schemas/` vendorizado, e `tests/test_nfelib_contract.py`.~~ **FEITO em 2026-08-11.**
+
+   Três coisas que a execução acrescentou ao que estava planejado:
+
+   - **O ZIP oficial não sai por `curl`.** O WAF do gov.br devolve 403 para cliente
+     não-browser. A página de listagem responde 200 com User-Agent de browser, mas o
+     ZIP em si 403a de qualquer jeito — foi baixado por browser headless. É por isso
+     que `watch-upstream.yml` monitora o **nome do arquivo** na página, não o arquivo.
+   - **A cópia de esquemas da `nfelib` está atrás do oficial.** `tiposComplexos_v1.00`
+     tem 78.115 bytes na `nfelib` 2.5.2 e 80.390 no ZIP publicado; `CNC_v1.00.xsd` e
+     `tiposCnc_v1.00.xsd` nem existem lá. Vendorizar o oficial não é redundância.
+   - **A armadilha do E1228 foi confirmada em execução.** O `XmlSerializer` do
+     `xsdata` emite `ns0:` em todo elemento por padrão. A correção é
+     `render(obj, ns_map={None: NAMESPACE})`, e o teste guarda **qualquer** prefixo,
+     não a string literal `ns0:`.
+
+   Fora de escopo por dependência que ainda não existe: o console script
+   `nfse-doctor` está comentado no `pyproject.toml` porque `doctor.py` só entra no
+   item 8, e declarar entry point antes disso instala um comando que quebra no import.
 4. `ambientes.py` — as quatro bases, com o teste que impede regressão para o ADN.
 5. `cert.py` — `from_pfx()` com `cryptography.pkcs12`, `cn`, `validade`, aviso de vencimento
    em menos de 30 dias, `ssl.SSLContext` com write→close→load→unlink em 0600, e detecção de
