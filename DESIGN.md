@@ -623,10 +623,19 @@ recusar, sem exceção).
 
 Sem gates. O caminho está livre para código.
 
-1. **Abrir issue no `brans-nfe`** perguntando se o mantenedor quer co-manutenção. 10 minutos.
-   Se a resposta for boa, este design vira roadmap de um repo que já existe. Continua sendo a
-   primeira tarefa, e o fato de o `brans-nfe` já ter acertado transporte e assinatura torna a
-   conversa mais valiosa, não menos.
+1. ~~**Abrir issue no `brans-nfe`** perguntando se o mantenedor quer co-manutenção.~~
+   **FEITO em 2026-08-11** — [badbrans/brans-nfe#3](https://github.com/badbrans/brans-nfe/issues/3).
+   Aguardando resposta. **Data de corte: 2026-08-25.** Sem resposta até lá, tratar como
+   "prefiro tocar sozinho" e seguir com biblioteca própria, sem reabrir a pergunta.
+
+   Contexto que pesa na leitura do silêncio: o repo teve o último push em 2026-06-10 e
+   nunca recebeu issue nem PR de fora — esta é a primeira interação externa da vida dele.
+   Silêncio é resultado provável e não deve travar mais nada.
+
+   Se a resposta for boa, este design vira roadmap de um repo que já existe. O `brans-nfe`
+   já acertou transporte e assinatura (`transmitir()` sem retry, forma estrita no
+   `signer.py`), o que torna a conversa mais valiosa, não menos. A lacuna dele é catálogo
+   e diagnóstico — exatamente o que os itens 7 e 9 desta lista constroem.
 2. **Resolver OQ12** — conseguir um certificado ICP-Brasil A1 e confirmar um município
    conveniado. É a maior dependência aberta e a única coisa que impede validar a feature de
    manchete. Comece por aqui em paralelo com o código.
