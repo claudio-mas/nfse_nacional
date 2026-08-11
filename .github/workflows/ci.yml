@@ -33,7 +33,13 @@ jobs:
         run: uv run ruff format --check .
 
       - name: mypy --strict
-        run: uv run mypy nfsenacional tests
+        run: uv run mypy nfsenacional tests tools
+
+      # O catálogo de serviços é gerado a partir do anexo. Este passo prova que o
+      # arquivo versionado é exatamente o que o gerador produz, o que impede uma
+      # correção feita à mão sumir na próxima geração.
+      - name: Catálogos em sincronia com os anexos
+        run: uv run python tools/gerar_catalogo_servicos.py --conferir
 
   test:
     runs-on: ubuntu-latest

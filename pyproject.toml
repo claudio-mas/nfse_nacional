@@ -78,6 +78,16 @@ extend-exclude = ["*.md", "Schemas"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
 
+[tool.ruff.lint.per-file-ignores]
+# Catálogo gerado: as descrições oficiais têm até 455 caracteres e quebrá-las
+# tornaria o diff ilegível a cada republicação do anexo.
+"nfsenacional/catalogos/servicos.py" = ["E501"]
+
+[tool.ruff.format]
+# O arquivo é escrito por `tools/gerar_catalogo_servicos.py`. Deixar o formatador
+# reescrevê-lo faria o `--conferir` acusar divergência a cada execução.
+exclude = ["nfsenacional/catalogos/servicos.py"]
+
 [tool.mypy]
 python_version = "3.10"
 strict = true
