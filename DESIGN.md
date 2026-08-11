@@ -725,9 +725,44 @@ Sem gates. O caminho está livre para código.
    significado delas depende de notas de rodapé do anexo, e mapear errado seria pior que
    não ter. A coluna de grupo obrigatório entrou porque é inequívoca — `obra` (13
    serviços) ou `atvEvento` (19).
-8. `convenio.py` + `doctor.py` — **v0.1.0 sai aqui.** Publicar no PyPI.
+8. ~~`convenio.py` + `doctor.py`~~ **CÓDIGO FEITO em 2026-08-11.** Publicação no PyPI
+   pendente — ver "Pendências do v0.1.0" abaixo.
+
+   **A rota do convênio continua indecidida, e o código não aposta.** O manual do
+   Emissor Público v1.2 documenta `/parametros_municipais/{codMun}/convenio`; o
+   `pynfse-nacional`, única implementação em produção com convênio, usa
+   `{ADN}/parametrizacao/{codMun}/convenio`. Nada responde sem certificado (OQ6), nem
+   o Swagger. `consultar_convenio` tenta as duas e o `doctor` reporta qual respondeu —
+   mesmo princípio do par de assinatura.
+
+   **A forma do corpo da resposta segue desconhecida, de propósito.** O manual descreve
+   o serviço sem publicar schema, e a implementação concorrente também não a conhece:
+   infere adesão pelo status e guarda o corpo sem tipar. Aqui é igual. Tipar campo não
+   verificado seria inventar leiaute.
+
+   **O `doctor` roda com `tentativas=1`.** Descoberto por teste: o retry padrão de
+   leitura trocava a `SSLError` original pela falha da última tentativa — justamente a
+   informação que o comando existe para dar — e custava 4,5 s de espera.
+
+   Verificado contra o servidor real, não só mock: apontado para
+   `adn.producaorestrita.nfse.gov.br` com certificado auto-assinado, o ADN recusa no
+   TLS e o `doctor` classifica como `MTLS_FALHOU`. Confirma o OQ6 na prática.
 9. `perfis.py` + `signing.py` manual + `catalogos/rejeicoes.py` + `facade/` + `adapters/` +
    `emitir`/`consultar`/`/dps/{id}`/`danfse` + `--probe-assinatura` — v0.2.0.
+
+## Pendências do v0.1.0
+
+O código do v0.1.0 está completo e o CI está verde. Falta o que não é código:
+
+1. **Cadastrar o Trusted Publishing no PyPI** — `pypi.org/manage/account/publishing/`,
+   projeto `nfsenacional`, dono `claudio-mas`, repo `nfse_nacional`, workflow
+   `release.yml`, ambiente `pypi`. Sem isso a primeira tag `v*` falha na publicação.
+2. **Decidir a visibilidade do repositório.** Está privado. O design prevê GitHub
+   público MIT, e a issue aberta no `brans-nfe` oferece compartilhar este documento.
+3. **Subir a versão** de `0.1.0.dev0` para `0.1.0` e empurrar a tag `v0.1.0`.
+
+Nada disso depende do OQ12: o `doctor` do v0.1.0 diagnostica sem emitir nota. O
+certificado real continua sendo pré-requisito só do `--probe-assinatura`, na v0.2.0.
 
 ## Histórico de revisão
 
