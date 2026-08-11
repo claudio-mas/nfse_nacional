@@ -317,7 +317,7 @@ de convênio é o **passo zero**, não o passo 3.
 
 **P7. Validar localmente só o que é decidível offline.** Dígito verificador de CPF/CNPJ,
 formato de CEP, código IBGE de 7 dígitos, `dCompet` AAAA-MM-DD, existência do `cTribNac` na
-lista de 341 subitens, e o que o próprio XSD já cobre. Fora da lista offline: a matriz de
+lista de 337 subitens, e o que o próprio XSD já cobre. Fora da lista offline: a matriz de
 compatibilidade de eventos, que exige `GET /nfse/{chave}/eventos` — decidível **após uma
 consulta**, e é assim que `eventos/` deve documentar.
 
@@ -458,7 +458,7 @@ nfsenacional/
   facade/
     prestador.py  tomador.py  servico.py  dps.py  nfse.py        dados puros, sem nfelib
   catalogos/
-    servicos.py        341 subitens; buscar_servico(texto); zfill(6) com assertion de build
+    servicos.py        337 subitens; buscar_servico(texto); zfill(6) com assertion de build
     rejeicoes.py       429 regras com E####; caminho XML Optional (forward-fill de coluna)
     eventos.py         16 tipos + matriz de compatibilidade
   adapters/nfelib.py   ÚNICO dono da conversão fachada <-> bindings e do eixo de perfil;
@@ -596,7 +596,7 @@ recusar, sem exceção).
   em menos de 5 minutos, partindo de zero, sem ler documentação.
 - `nfse-doctor` tem código de saída distinto para: município não aderido, certificado
   inválido ou vencido, falha de handshake mTLS, PKCS#12 ilegível, sucesso.
-- `catalogos/servicos.py` tem 341 entradas, todas com `cTribNac` de exatamente 6 dígitos —
+- `catalogos/servicos.py` tem 337 entradas, todas com `cTribNac` de exatamente 6 dígitos —
   assertion no build, não no teste.
 - `tests/test_nfelib_contract.py` faz o round-trip da DPS de exemplo e falha quando o
   `nfelib` publica esquema novo.
@@ -703,7 +703,28 @@ Sem gates. O caminho está livre para código.
    explícita, campo vazio na resposta viraria "XML vazio" e o problema só apareceria
    muito depois, num parse que não explica nada. `de_gzip_b64` recusa vazio nos dois
    lados (entrada e saída da descompressão).
-7. `errors.py` base + `catalogos/servicos.py` (zfill(6) e assertion de build, OQ5).
+7. ~~`errors.py` base + `catalogos/servicos.py` (zfill(6) e assertion de build, OQ5).~~
+   **FEITO em 2026-08-11.** A base de `errors.py` já tinha entrado com os itens 5 e 6.
+
+   **O número 341 estava errado: são 337.** Veio do plano original e se propagou até os
+   critérios de sucesso. Varredura exaustiva das linhas de tabela da seção
+   `MUN.INCID_INFO.SERV.` devolve 337 linhas de dado e 6 de cabeçalho, sem nenhuma
+   escapando do padrão. Corrigido nas três ocorrências.
+
+   O OQ5 se confirmou na medida certa: **118 dos 337** códigos perderam o zero à
+   esquerda no export do Excel — 35%, o "cerca de um terço" que a revisão 2 estimou. O
+   XSD é a autoridade e fixa `[0-9]{6}` com 2 dígitos de item, 2 de subitem e 2 de
+   desdobro nacional, o que também deu a decomposição `item`/`subitem`/`desdobro`.
+
+   O catálogo é **gerado** por `tools/gerar_catalogo_servicos.py`, com os dados embutidos
+   no módulo — o anexo não vai na wheel. `--conferir` roda no CI e prova que o arquivo
+   versionado é o que sai do anexo versionado, para que correção feita à mão não suma na
+   próxima geração.
+
+   Deliberadamente fora: as colunas X/- de localidade de incidência (EP/LP/ET/EDEmit). O
+   significado delas depende de notas de rodapé do anexo, e mapear errado seria pior que
+   não ter. A coluna de grupo obrigatório entrou porque é inequívoca — `obra` (13
+   serviços) ou `atvEvento` (19).
 8. `convenio.py` + `doctor.py` — **v0.1.0 sai aqui.** Publicar no PyPI.
 9. `perfis.py` + `signing.py` manual + `catalogos/rejeicoes.py` + `facade/` + `adapters/` +
    `emitir`/`consultar`/`/dps/{id}`/`danfse` + `--probe-assinatura` — v0.2.0.
