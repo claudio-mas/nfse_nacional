@@ -18,6 +18,7 @@ __all__ = [
     "MensagemSefin",
     "TransporteError",
     "RespostaInvalidaError",
+    "MunicipioNaoAderente",
 ]
 
 
@@ -109,6 +110,24 @@ class TransporteError(NFSeError):
     def codigos(self) -> tuple[str, ...]:
         """Só os códigos, na ordem em que vieram. Vazio quando o corpo não era JSON."""
         return tuple(m.codigo for m in self.mensagens if m.codigo)
+
+
+class MunicipioNaoAderente(NFSeError):
+    """O município não aderiu ao Sistema Nacional NFS-e.
+
+    É o passo zero, não o passo três. "Obrigatório para todos os municípios desde
+    janeiro de 2026" é meia-verdade: quem não aderir perde transferências voluntárias
+    federais (LC 214/2025), mas a emissão não migrou toda — município com sistema
+    próprio segue com `ambGer=1`. Tentar emitir contra um município não conveniado
+    falha, e o erro que volta não diz que o problema é esse.
+    """
+
+    def __init__(self, codigo_municipio: str) -> None:
+        super().__init__(
+            f"Município {codigo_municipio} não aderiu ao Sistema Nacional NFS-e, "
+            "ou não respondeu à consulta de convênio. Emitir contra ele vai falhar."
+        )
+        self.codigo_municipio = codigo_municipio
 
 
 class RespostaInvalidaError(NFSeError):

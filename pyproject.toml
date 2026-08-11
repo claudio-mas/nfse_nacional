@@ -56,11 +56,8 @@ Homepage = "https://github.com/claudio-mas/nfse_nacional"
 Repository = "https://github.com/claudio-mas/nfse_nacional"
 Issues = "https://github.com/claudio-mas/nfse_nacional/issues"
 
-# NOTA: o console script `nfse-doctor` entra aqui quando `nfsenacional/doctor.py`
-# existir (v0.1.0). Declarar antes disso instala um comando que quebra no import.
-#
-# [project.scripts]
-# nfse-doctor = "nfsenacional.doctor:main"
+[project.scripts]
+nfse-doctor = "nfsenacional.doctor:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["nfsenacional"]
