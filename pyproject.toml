@@ -1,0 +1,98 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nfsenacional"
+version = "0.1.0.dev0"
+description = "Cliente Python para a API REST do Sistema Nacional NFS-e (SEFIN Nacional / gov.br/nfse)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Cláudio Más", email = "claudio.mas@gmail.com" }]
+keywords = ["nfse", "nfse-nacional", "sefin", "adn", "icp-brasil", "mtls", "nota-fiscal", "fiscal", "brasil"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Natural Language :: Portuguese (Brazilian)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business :: Financial",
+    "Typing :: Typed",
+]
+
+# Núcleo mínimo. `signxml` está deliberadamente FORA: sob o esquema 1.00 o XSD fixa
+# rsa-sha1, e o signxml atual recusa RSA-SHA1 por padrão nos dois sentidos. A
+# assinatura é montada com lxml + cryptography, que cobre os dois perfis com um
+# único caminho de código. Ver P10 no DESIGN.md.
+dependencies = [
+    # Pin exato: `perfis.py` referencia conjuntos de bindings específicos, e um
+    # bump de esquema no upstream muda o mapeamento sem aviso. Afrouxar para faixa
+    # só depois que houver suíte de contrato madura (OQ10 no DESIGN.md).
+    "nfelib==2.5.2",
+    "httpx>=0.27",
+    "cryptography>=42.0",
+    "lxml>=5.0",
+]
+
+[project.optional-dependencies]
+pdf = ["reportlab>=4.0"]
+dev = [
+    "mypy>=1.10",
+    "pytest>=8.0",
+    "pytest-httpx>=0.30",
+    "ruff>=0.6",
+    "lxml-stubs>=0.5",
+]
+
+[project.urls]
+Homepage = "https://github.com/claudio-mas/nfse_nacional"
+Repository = "https://github.com/claudio-mas/nfse_nacional"
+Issues = "https://github.com/claudio-mas/nfse_nacional/issues"
+
+# NOTA: o console script `nfse-doctor` entra aqui quando `nfsenacional/doctor.py`
+# existir (v0.1.0). Declarar antes disso instala um comando que quebra no import.
+#
+# [project.scripts]
+# nfse-doctor = "nfsenacional.doctor:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["nfsenacional"]
+
+[tool.hatch.build.targets.sdist]
+include = ["nfsenacional", "tests", "Schemas", "DESIGN.md", "README.md", "LICENSE"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+# O ruff 0.14 formata blocos Python dentro de Markdown. `DESIGN.md` tem exemplos
+# ilustrativos que não são código deste projeto e não devem ser reescritos.
+extend-exclude = ["*.md", "Schemas"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_unreachable = true
+show_error_codes = true
+
+# nfelib é gerado por xsdata e não distribui py.typed. Sem isto, `mypy --strict`
+# recusa o import inteiro e não sobra nada para checar no nosso código.
+[[tool.mypy.overrides]]
+module = ["nfelib.*", "xsdata.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --strict-config"
+markers = [
+    "integration: exige certificado ICP-Brasil A1 real e rede; não roda por padrão",
+]

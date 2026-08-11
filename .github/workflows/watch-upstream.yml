@@ -1,0 +1,135 @@
+name: Watch upstream
+
+# Duas coisas mudam debaixo desta biblioteca sem aviso, e as duas quebram em
+# silêncio. Este workflow transforma as duas em issue aberta.
+#
+#   1. A `nfelib` publica release novo, com bindings regenerados.
+#   2. O gov.br publica um ZIP de esquemas com data nova.
+#
+# O item 2 é o que motivou este arquivo: o plano original citava o ZIP como
+# `v1-01-20260122`, e o publicado já era `v1-01-20260209`. Ninguém percebeu.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # segunda-feira, 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  nfelib:
+    name: nfelib mais recente ainda passa na suíte
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Instalar com a nfelib mais recente, ignorando o pin
+        id: instalar
+        run: |
+          uv sync --extra dev
+          uv pip install --upgrade nfelib
+          echo "versao=$(uv run python -c 'from importlib.metadata import version; print(version(\"nfelib\"))')" >> "$GITHUB_OUTPUT"
+
+      # `test_nfelib_esta_no_pin_exato` falha de propósito aqui: o objetivo deste job
+      # é justamente rodar fora do pin. O sinal que interessa são os outros testes.
+      - name: pytest sem o teste de pin
+        run: uv run pytest -m "not integration" --deselect tests/test_nfelib_contract.py::test_nfelib_esta_no_pin_exato
+
+      - name: Abrir issue se a suíte quebrar
+        if: failure()
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const versao = '${{ steps.instalar.outputs.versao }}';
+            const titulo = `nfelib ${versao} quebra a suíte de contrato`;
+            const { data: existentes } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: 'upstream',
+            });
+            if (existentes.some(i => i.title === titulo)) return;
+            await github.rest.issues.create({
+              owner: context.repo.owner, repo: context.repo.repo,
+              title: titulo,
+              labels: ['upstream'],
+              body: [
+                `A \`nfelib\` ${versao} não passa em \`tests/test_nfelib_contract.py\`.`,
+                '',
+                'O pin exato no `pyproject.toml` continua protegendo quem instala.',
+                'Antes de subir o pin, confira o que mudou de forma nos bindings.',
+                '',
+                `Execução: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              ].join('\n'),
+            });
+
+  esquemas:
+    name: gov.br ainda publica o ZIP que temos vendorizado
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Comparar o nome do ZIP publicado com o vendorizado
+        id: comparar
+        run: |
+          set -uo pipefail
+          # O WAF do gov.br devolve 403 para cliente sem User-Agent de browser, e
+          # recusa o ZIP em acesso direto de qualquer jeito. A página de listagem
+          # responde 200 com UA de browser, e o nome do arquivo basta para detectar
+          # publicação nova — que é tudo que este job precisa saber.
+          UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+          URL='https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/documentacao-atual'
+          ESPERADO='nfse-esquemas_xsd-v1-01-20260209.zip'
+
+          if ! curl -sS --fail --max-time 60 -A "$UA" "$URL" -o pagina.html; then
+            echo "::warning::não foi possível ler a página de esquemas do gov.br"
+            exit 0
+          fi
+
+          PUBLICADO=$(grep -oE 'nfse-esquemas_xsd-v[0-9.-]+\.zip' pagina.html | sort -u | tail -1)
+          echo "esperado=$ESPERADO publicado=${PUBLICADO:-<nenhum>}"
+          echo "publicado=$PUBLICADO" >> "$GITHUB_OUTPUT"
+          echo "esperado=$ESPERADO" >> "$GITHUB_OUTPUT"
+
+          if [ -z "$PUBLICADO" ]; then
+            echo "::warning::a página mudou de forma; o nome do ZIP não foi encontrado"
+            exit 0
+          fi
+          if [ "$PUBLICADO" != "$ESPERADO" ]; then
+            echo "mudou=sim" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Abrir issue quando o ZIP mudar de data
+        if: steps.comparar.outputs.mudou == 'sim'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const publicado = '${{ steps.comparar.outputs.publicado }}';
+            const esperado  = '${{ steps.comparar.outputs.esperado }}';
+            const titulo = `gov.br publicou ${publicado}`;
+            const { data: existentes } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: 'upstream',
+            });
+            if (existentes.some(i => i.title === titulo)) return;
+            await github.rest.issues.create({
+              owner: context.repo.owner, repo: context.repo.repo,
+              title: titulo,
+              labels: ['upstream'],
+              body: [
+                `O ZIP de esquemas vendorizado em \`Schemas/\` é o \`${esperado}\`.`,
+                `A página de documentação atual agora oferece \`${publicado}\`.`,
+                '',
+                'Para atualizar: baixe o novo ZIP, substitua `Schemas/1.00/` e',
+                '`Schemas/1.01/`, atualize `Schemas/PROCEDENCIA.md` (nome, SHA-256 e',
+                'data), atualize `ESPERADO` neste workflow, e rode a suíte.',
+                '',
+                'Confira em especial `xmldsig-core-schema.xsd` nas duas versões: se o',
+                'governo unificar os dois, o eixo de perfil do `signing.py` encolhe',
+                'para uma constante. Ver `test_xmldsig_diverge_entre_as_versoes`.',
+              ].join('\n'),
+            });

@@ -1,0 +1,72 @@
+name: Release
+
+# Publica no PyPI quando uma tag `v*` é empurrada.
+#
+# Autenticação por Trusted Publishing (OIDC): não existe token de PyPI guardado
+# como segredo neste repositório. Antes da primeira publicação, cadastre o
+# publisher em https://pypi.org/manage/account/publishing/ com:
+#
+#   projeto  : nfsenacional
+#   dono     : claudio-mas
+#   repo     : nfse_nacional
+#   workflow : release.yml
+#   ambiente : pypi
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Instalar
+        run: uv sync --extra dev
+
+      # A tag é a única fonte da verdade da versão publicada. Se ela divergir do
+      # pyproject, o PyPI recebe um número que ninguém consegue reproduzir a partir
+      # do repositório.
+      - name: Conferir que a tag bate com a versão do pacote
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(uv run python -c 'import nfsenacional; print(nfsenacional.__version__)')"
+          echo "tag=$tag pacote=$pkg"
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::tag $tag != versão do pacote $pkg" >&2
+            exit 1
+          fi
+
+      - name: Rodar a suíte antes de publicar
+        run: uv run pytest -m "not integration"
+
+      - name: Construir
+        run: uv build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write # exigido pelo Trusted Publishing
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1

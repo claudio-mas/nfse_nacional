@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Instalar
+        run: uv sync --extra dev
+
+      - name: ruff check
+        run: uv run ruff check .
+
+      - name: ruff format
+        run: uv run ruff format --check .
+
+      - name: mypy --strict
+        run: uv run mypy nfsenacional tests
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+
+      - name: Instalar
+        run: uv sync --extra dev
+
+      # Os testes de integração exigem certificado ICP-Brasil A1 real e um município
+      # conveniado (OQ12 no DESIGN.md). Não existe segredo para isso no CI, então a
+      # marca fica desligada aqui e é ligada à mão.
+      - name: pytest
+        run: uv run pytest -m "not integration"
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Construir sdist e wheel
+        run: uv build
+
+      # Falha cedo se o pacote não instalar a partir do artefato construído, em vez
+      # de descobrir isso só na hora de publicar uma tag.
+      - name: Instalar a wheel num ambiente limpo
+        run: |
+          uv venv /tmp/limpo
+          VIRTUAL_ENV=/tmp/limpo uv pip install dist/*.whl
+          /tmp/limpo/bin/python -c "import nfsenacional; print(nfsenacional.__version__)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/

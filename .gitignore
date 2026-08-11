@@ -3,3 +3,28 @@
 
 # Ferramentas locais de agente
 .serena/
+.gstack/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+# Biblioteca, não aplicação: quem instala resolve as dependências no ambiente
+# dele. O CI resolve do zero de propósito, para detectar quebra de upstream.
+uv.lock
+.coverage
+htmlcov/
+
+# Certificados e segredos — NUNCA versionar material de chave privada ICP-Brasil
+*.pfx
+*.p12
+*.pem
+*.key
+.env
