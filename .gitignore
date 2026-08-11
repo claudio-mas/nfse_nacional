@@ -1,2 +1,5 @@
 # Ignorar arquivos :Zone.Identifier
 **/*.Identifier
+
+# Ferramentas locais de agente
+.serena/
