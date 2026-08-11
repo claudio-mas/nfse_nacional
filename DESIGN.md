@@ -558,11 +558,25 @@ o gerador precisa de forward-fill. Pior: as 16 regras de `RN_RECEPCAO_DPS` estã
 depois que houver suíte de contrato. Ganha peso agora que `perfis.py` referencia dois
 conjuntos de bindings, um deles vendorizado.
 
-**OQ11. PKCS#12 legado vs OpenSSL 3.x.** Arquivos `.pfx` ICP-Brasil A1 costumam usar
-algoritmos PKCS#12 legados que o OpenSSL 3.x recusa sem o legacy provider.
-`cryptography.pkcs12.load_key_and_certificates` falha com erro opaco. É o ticket de suporte
-mais comum de toda biblioteca fiscal brasileira, e `cert.py` é o primeiro módulo construído.
-Precisa de detecção e mensagem acionável.
+**~~OQ11. PKCS#12 legado vs OpenSSL 3.x.~~ RESOLVIDO em 2026-08-11, e a premissa caiu.**
+
+A revisão 3 afirmava que `cryptography.pkcs12.load_key_and_certificates` falha em `.pfx`
+ICP-Brasil A1 por causa das cifras legadas. **Não reproduz.** Um `.pfx` gerado com
+`-certpbe PBE-SHA1-RC2-40 -keypbe PBE-SHA1-3DES -macalg SHA1` carrega sem reclamar sob
+`cryptography` 50.0.0, que empacota o próprio OpenSSL 4.0.1 com esses algoritmos
+disponíveis. O wheel oficial não passa pelo legacy provider do OpenSSL do sistema.
+
+O problema real é outro, e sobrevive: `cryptography` levanta `Invalid password or PKCS12
+data` **tanto** para senha errada **quanto** para algoritmo recusado. Pela exceção não dá
+para saber qual dos dois é. É essa ambiguidade que gera o ticket de suporte, não a falha
+em si — e ela atinge quem roda build ligada a um OpenSSL 3.x de sistema sem legacy
+provider, não a instalação padrão via `pip`.
+
+`cert.py` desfaz a ambiguidade sem parser ASN.1: procura no DER cru os dois OIDs de PBE
+clássico (`1.2.840.113549.1.12.1.3` e `.1.6`) e escolhe a mensagem. Arquivo legado →
+"a senha pode estar certa, confira a build do OpenSSL". Arquivo PBES2 → "a causa provável
+é senha incorreta". Nos dois casos a mensagem entrega o comando `openssl pkcs12` que
+separa os cenários. `Certificate.usa_cifras_legadas` expõe o mesmo sinal para o `doctor`.
 
 **OQ12. Infraestrutura de teste de integração — subiu de prioridade.** No Approach C isso
 deixou de ser só cobertura de teste: o probe de perfil do `doctor` é a feature de manchete e
@@ -664,9 +678,20 @@ Sem gates. O caminho está livre para código.
    **FEITO em 2026-08-11.** `Ambiente` carrega também o `tp_amb` do leiaute. Os guardas
    foram verificados por mutação: reintroduzir emissão-no-ADN, DANFSe-no-SEFIN e
    restrita-vazando-para-produção deixa a suíte vermelha nos três casos.
-5. `cert.py` — `from_pfx()` com `cryptography.pkcs12`, `cn`, `validade`, aviso de vencimento
-   em menos de 30 dias, `ssl.SSLContext` com write→close→load→unlink em 0600, e detecção de
-   PKCS#12 legado (OQ11). Teste com `.pfx` auto-assinado gerado em `conftest.py`.
+5. ~~`cert.py` — `from_pfx()`, `cn`, `validade`, aviso de vencimento, `ssl.SSLContext` com
+   write→close→load→unlink em 0600, e detecção de PKCS#12 legado (OQ11).~~
+   **FEITO em 2026-08-11.** Junto veio o mínimo de `errors.py` que o `cert.py` precisa.
+
+   Duas decisões que a execução firmou:
+
+   - **Carregar nunca valida.** Certificado vencido abre normalmente, e `exigir_valido()`
+     é opt-in. O `doctor` precisa abrir o arquivo para conseguir dizer "venceu há 12 dias";
+     estourar na carga deixaria o usuário sem diagnóstico nenhum.
+   - **`repr` não vaza chave.** `Certificate` é frozen dataclass com `repr=False` nos
+     campos de chave, certificado e cadeia. O `repr` automático despejaria material de
+     chave privada em qualquer log que chamasse `print()`.
+
+   A premissa do OQ11 caiu na verificação — ver OQ11 acima.
 6. `transport.py` — envelope JSON, gzip+base64, retry só GET/HEAD, normalização das quatro
    formas de erro (P11).
 7. `errors.py` base + `catalogos/servicos.py` (zfill(6) e assertion de build, OQ5).
