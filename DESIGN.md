@@ -442,7 +442,7 @@ definitivamente não deveria precisar saber.
 ```
 nfsenacional/
   __init__.py          NFSeClient, Certificate, Ambiente, exports principais
-  ambientes.py         enum Ambiente + TRÊS bases (SEFIN, ADN parametrização, ADN contribuintes)
+  ambientes.py         enum Ambiente + QUATRO bases (SEFIN, ADN raiz, ADN parametrização, ADN contribuintes)
   cert.py              from_pfx(); ssl.SSLContext (write 0600 -> close -> load -> unlink)
                        detecção de PKCS#12 legado vs OpenSSL 3.x com mensagem acionável
   transport.py         httpx.Client mTLS; envelope JSON; gzip+base64 nos dois sentidos;
@@ -586,7 +586,8 @@ recusar, sem exceção).
   assertion no build, não no teste.
 - `tests/test_nfelib_contract.py` faz o round-trip da DPS de exemplo e falha quando o
   `nfelib` publica esquema novo.
-- Teste que fixa as três URLs base e falha se alguém apontar emissão para o ADN.
+- Teste que fixa as quatro URLs base e falha se alguém apontar emissão para o ADN
+  ou DANFSe para o SEFIN.
 - `mypy --strict` limpo, `ruff` limpo.
 
 **v0.2.0**
@@ -642,7 +643,7 @@ Sem gates. O caminho está livre para código.
 3. Esqueleto: `pyproject.toml` (hatch, ruff E/F/I/UP, py310, mypy strict, `nfelib` pinado
    exato), `LICENSE` MIT, `.gitignore`, GitHub Actions, `Schemas/` vendorizado, e
    `tests/test_nfelib_contract.py` com o round-trip da DPS.
-4. `ambientes.py` — as três bases, com o teste que impede regressão para o ADN.
+4. `ambientes.py` — as quatro bases, com o teste que impede regressão para o ADN.
 5. `cert.py` — `from_pfx()` com `cryptography.pkcs12`, `cn`, `validade`, aviso de vencimento
    em menos de 30 dias, `ssl.SSLContext` com write→close→load→unlink em 0600, e detecção de
    PKCS#12 legado (OQ11). Teste com `.pfx` auto-assinado gerado em `conftest.py`.
