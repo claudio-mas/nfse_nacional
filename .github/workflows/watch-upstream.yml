@@ -23,7 +23,7 @@ jobs:
     name: nfelib mais recente ainda passa na suíte
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: astral-sh/setup-uv@v7
         with:
@@ -43,7 +43,7 @@ jobs:
 
       - name: Abrir issue se a suíte quebrar
         if: failure()
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const versao = '${{ steps.instalar.outputs.versao }}';
@@ -71,7 +71,7 @@ jobs:
     name: gov.br ainda publica o ZIP que temos vendorizado
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Comparar o nome do ZIP publicado com o vendorizado
         id: comparar
@@ -105,7 +105,7 @@ jobs:
 
       - name: Abrir issue quando o ZIP mudar de data
         if: steps.comparar.outputs.mudou == 'sim'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const publicado = '${{ steps.comparar.outputs.publicado }}';
