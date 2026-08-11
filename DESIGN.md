@@ -692,8 +692,17 @@ Sem gates. O caminho está livre para código.
      chave privada em qualquer log que chamasse `print()`.
 
    A premissa do OQ11 caiu na verificação — ver OQ11 acima.
-6. `transport.py` — envelope JSON, gzip+base64, retry só GET/HEAD, normalização das quatro
-   formas de erro (P11).
+6. ~~`transport.py` — envelope JSON, gzip+base64, retry só GET/HEAD, normalização das
+   quatro formas de erro (P11).~~ **FEITO em 2026-08-11.**
+
+   O retry é decidido pelo **método**, não pelo status: `GET`/`HEAD` repetem em 5xx e em
+   erro de rede, `POST` nunca. 4xx não repete nem em leitura — é decisão do servidor
+   sobre aquela requisição, e repetir só atrasa o diagnóstico.
+
+   Achado da execução: `gzip.decompress(b"")` devolve `b""` **sem levantar**. Sem guarda
+   explícita, campo vazio na resposta viraria "XML vazio" e o problema só apareceria
+   muito depois, num parse que não explica nada. `de_gzip_b64` recusa vazio nos dois
+   lados (entrada e saída da descompressão).
 7. `errors.py` base + `catalogos/servicos.py` (zfill(6) e assertion de build, OQ5).
 8. `convenio.py` + `doctor.py` — **v0.1.0 sai aqui.** Publicar no PyPI.
 9. `perfis.py` + `signing.py` manual + `catalogos/rejeicoes.py` + `facade/` + `adapters/` +
