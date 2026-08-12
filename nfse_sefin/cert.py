@@ -20,6 +20,7 @@ material carregado, então apagar depois não quebra nada.
 
 from __future__ import annotations
 
+import base64
 import os
 import ssl
 import tempfile
@@ -28,7 +29,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from cryptography import x509
-from cryptography.hazmat.primitives.asymmetric import dsa, ec, ed448, ed25519, rsa
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import dsa, ec, ed448, ed25519, padding, rsa
 from cryptography.hazmat.primitives.serialization import (
     BestAvailableEncryption,
     Encoding,
@@ -39,7 +41,13 @@ from cryptography.hazmat.primitives.serialization import (
 from cryptography.hazmat.primitives.serialization.pkcs12 import PKCS12PrivateKeyTypes
 from cryptography.x509.oid import NameOID
 
-from nfse_sefin.errors import CertificadoIlegivelError, CertificadoVencidoError
+from nfse_sefin.errors import (
+    CertificadoError,
+    CertificadoIlegivelError,
+    CertificadoVencidoError,
+)
+
+_HASHES: dict[str, type[hashes.HashAlgorithm]] = {"sha1": hashes.SHA1, "sha256": hashes.SHA256}
 
 __all__ = ["Certificate", "DIAS_AVISO_VENCIMENTO"]
 
@@ -265,6 +273,44 @@ class Certificate:
         ]
         partes.extend(intermediario.public_bytes(Encoding.PEM) for intermediario in self._cadeia)
         return b"".join(partes)
+
+    # -------------------------------------------------------------- assinatura
+
+    def assinar(self, dados: bytes, hash_nome: str) -> bytes:
+        """Assina `dados` com a chave privada, usando RSASSA-PKCS1-v1_5.
+
+        A chave privada nunca sai deste módulo. `signing.py` monta o XML e pede a
+        assinatura aqui, para que exista um lugar só que toque material secreto.
+
+        Args:
+            hash_nome: `sha1` ou `sha256`, vindo do perfil ativo.
+        """
+        if not isinstance(self._chave, rsa.RSAPrivateKey):
+            raise CertificadoError(
+                f"Assinatura XMLDSIG exige chave RSA; este certificado usa "
+                f"{type(self._chave).__name__}."
+            )
+        try:
+            algoritmo = _HASHES[hash_nome]
+        except KeyError:
+            conhecidos = ", ".join(sorted(_HASHES))
+            raise ValueError(
+                f"Hash {hash_nome!r} não suportado. Conhecidos: {conhecidos}."
+            ) from None
+        return self._chave.sign(dados, padding.PKCS1v15(), algoritmo())
+
+    @property
+    def certificado_der_b64(self) -> str:
+        """O certificado em DER e base64, como vai dentro de `X509Certificate`."""
+        return base64.b64encode(self._certificado.public_bytes(Encoding.DER)).decode("ascii")
+
+    @property
+    def chave_publica(self) -> rsa.RSAPublicKey:
+        """Para verificar uma assinatura que acabamos de produzir, em teste e no probe."""
+        publica = self._certificado.public_key()
+        if not isinstance(publica, rsa.RSAPublicKey):
+            raise CertificadoError("Certificado sem chave pública RSA.")
+        return publica
 
     def exportar_pfx(self, password: str | bytes) -> bytes:
         """Reexporta como PKCS#12 cifrado. Útil para fixture de teste, não para uso normal."""
