@@ -765,19 +765,29 @@ Sem gates. O caminho está livre para código.
 9. `perfis.py` + `signing.py` manual + `catalogos/rejeicoes.py` + `facade/` + `adapters/` +
    `emitir`/`consultar`/`/dps/{id}`/`danfse` + `--probe-assinatura` — v0.2.0.
 
-## Pendências do v0.1.0
+## v0.1.0 — PUBLICADO em 2026-08-11
 
-O código do v0.1.0 está completo e o CI está verde. Falta o que não é código:
+`pip install nfse-sefin` → https://pypi.org/project/nfse-sefin/
 
-1. **Cadastrar o Trusted Publishing no PyPI** — `pypi.org/manage/account/publishing/`,
-   projeto `nfse-sefin`, dono `claudio-mas`, repo `nfse_nacional`, workflow
-   `release.yml`, ambiente `pypi`. Sem isso a primeira tag `v*` falha na publicação.
-2. **Decidir a visibilidade do repositório.** Está privado. O design prevê GitHub
-   público MIT, e a issue aberta no `brans-nfe` oferece compartilhar este documento.
-3. **Subir a versão** de `0.1.0.dev0` para `0.1.0` e empurrar a tag `v0.1.0`.
+Publicado por Trusted Publishing (OIDC), sem token guardado no repositório.
+Repositório público. Instalação verificada num ambiente limpo a partir do PyPI: o
+console script roda, o catálogo carrega com 337 serviços, o `zfill` devolve `010101`
+para `10101`, e o `py.typed` viaja na wheel.
 
-Nada disso depende do OQ12: o `doctor` do v0.1.0 diagnostica sem emitir nota. O
-certificado real continua sendo pré-requisito só do `--probe-assinatura`, na v0.2.0.
+Duas correções que a preparação do release exigiu, ambas achadas ao verificar em vez
+de assumir:
+
+- **A versão tinha duas declarações.** `pyproject.toml` e `__init__.py`. O
+  `release.yml` compara a tag com `__version__`, mas o artefato sai com o número do
+  `pyproject` — divergência passaria pela guarda e publicaria outra versão. Agora o
+  hatch lê de `__init__.py` e o `pyproject` declara `dynamic`.
+- **`buscar_servico` não achava "banho e tosa"** — o caso de manchete escrito neste
+  documento como a razão de o catálogo existir. A busca era só substring e a lista
+  nacional não tem a palavra "tosa". Passou a ter três degraus: frase inteira, todos
+  os termos, algum termo ordenado por quantos casaram.
+
+Nada disso dependeu do OQ12: o `doctor` diagnostica sem emitir nota. O certificado
+real continua sendo pré-requisito só do `--probe-assinatura`, na v0.2.0.
 
 ## Histórico de revisão
 
