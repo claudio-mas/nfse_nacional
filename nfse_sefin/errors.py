@@ -10,6 +10,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from nfse_sefin.catalogos.rejeicoes import Rejeicao, por_codigo
+
 __all__ = [
     "NFSeError",
     "CertificadoError",
@@ -19,6 +21,7 @@ __all__ = [
     "TransporteError",
     "RespostaInvalidaError",
     "MunicipioNaoAderente",
+    "RejeicaoNFSe",
 ]
 
 
@@ -137,3 +140,49 @@ class RespostaInvalidaError(NFSeError):
     contrato é que mudou. É o sintoma de a API ter sido alterada sem aviso, e merece
     investigação diferente de uma queda de rede.
     """
+
+
+class RejeicaoNFSe(NFSeError):
+    """A SEFIN recusou o documento por regra de negócio.
+
+    A diferença para `TransporteError` é o que se pode fazer a seguir: transporte é
+    problema de conexão ou de disponibilidade e às vezes passa na próxima tentativa;
+    rejeição é decisão sobre o conteúdo, e repetir o mesmo XML devolve o mesmo erro.
+
+    O valor está em `regras`: o código cru `E0014` vira o texto oficial do anexo e o
+    caminho XML do campo culpado, sem o dev ter que abrir um documento de 373 KB.
+    """
+
+    def __init__(self, mensagens: Sequence[MensagemSefin], *, status_code: int | None = None):
+        self.mensagens: tuple[MensagemSefin, ...] = tuple(mensagens)
+        self.status_code = status_code
+        self.regras: tuple[Rejeicao, ...] = tuple(
+            regra for mensagem in self.mensagens for regra in por_codigo(mensagem.codigo)
+        )
+        super().__init__(self._descrever())
+
+    def _descrever(self) -> str:
+        if not self.mensagens:
+            return "A SEFIN recusou o documento sem informar código."
+
+        partes: list[str] = []
+        for mensagem in self.mensagens:
+            explicacoes = por_codigo(mensagem.codigo)
+            if not explicacoes:
+                # Código que o anexo não conhece. Melhor repetir o que o servidor
+                # disse do que inventar significado.
+                partes.append(str(mensagem))
+                continue
+            for regra in explicacoes:
+                onde = f" em {regra.caminho_xml}{regra.campo or ''}" if regra.caminho_xml else ""
+                partes.append(f"{regra.codigo}: {regra.mensagem}{onde}")
+        return " | ".join(partes)
+
+    @property
+    def codigos(self) -> tuple[str, ...]:
+        return tuple(m.codigo for m in self.mensagens if m.codigo)
+
+    @property
+    def caminhos_xml(self) -> tuple[str, ...]:
+        """Campos culpados, para quem quer apontar o erro no formulário do ERP."""
+        return tuple(f"{r.caminho_xml}{r.campo or ''}" for r in self.regras if r.caminho_xml)
