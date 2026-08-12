@@ -1,4 +1,4 @@
-"""Testes de `nfsenacional.convenio`.
+"""Testes de `nfse_sefin.convenio`.
 
 O ponto delicado aqui é que **404 é ambíguo**: pode ser "município não conveniado" ou
 "a rota está errada". Como o manual oficial e a única implementação em produção
@@ -14,15 +14,15 @@ import httpx
 import pytest
 from pytest_httpx import HTTPXMock
 
-from nfsenacional.ambientes import Ambiente, bases_de
-from nfsenacional.convenio import (
+from nfse_sefin.ambientes import Ambiente, bases_de
+from nfse_sefin.convenio import (
     CAMINHOS_CANDIDATOS,
     Convenio,
     consultar_convenio,
     valida_codigo_ibge,
 )
-from nfsenacional.errors import TransporteError
-from nfsenacional.transport import Transporte
+from nfse_sefin.errors import TransporteError
+from nfse_sefin.transport import Transporte
 
 BASES = bases_de(Ambiente.PRODUCAO_RESTRITA)
 MUNICIPIO = "3304557"  # Rio de Janeiro

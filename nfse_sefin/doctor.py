@@ -31,13 +31,13 @@ from enum import IntEnum
 from pathlib import Path
 from typing import TextIO
 
-from nfsenacional import __version__
-from nfsenacional.ambientes import Ambiente, bases_de
-from nfsenacional.catalogos import buscar_servico
-from nfsenacional.cert import Certificate
-from nfsenacional.convenio import consultar_convenio, valida_codigo_ibge
-from nfsenacional.errors import CertificadoIlegivelError, TransporteError
-from nfsenacional.transport import Transporte
+from nfse_sefin import __version__
+from nfse_sefin.ambientes import Ambiente, bases_de
+from nfse_sefin.catalogos import buscar_servico
+from nfse_sefin.cert import Certificate
+from nfse_sefin.convenio import consultar_convenio, valida_codigo_ibge
+from nfse_sefin.errors import CertificadoIlegivelError, TransporteError
+from nfse_sefin.transport import Transporte
 
 __all__ = ["CodigoSaida", "main"]
 

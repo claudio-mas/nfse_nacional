@@ -1,4 +1,4 @@
-# nfsenacional
+# nfse_sefin
 
 Cliente Python, licença MIT, para a API REST do Sistema Nacional NFS-e
 (SEFIN Nacional / [gov.br/nfse](https://www.gov.br/nfse)).
@@ -21,7 +21,7 @@ ERP — com o mínimo de configuração possível.
 uv sync --extra dev
 uv run pytest
 uv run ruff check .
-uv run mypy nfsenacional tests
+uv run mypy nfse_sefin tests
 ```
 
 `tests/test_nfelib_contract.py` é o alarme da dependência de forma com a

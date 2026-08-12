@@ -33,7 +33,7 @@ jobs:
         run: uv run ruff format --check .
 
       - name: mypy --strict
-        run: uv run mypy nfsenacional tests tools
+        run: uv run mypy nfse_sefin tests tools
 
       # O catálogo de serviços é gerado a partir do anexo. Este passo prova que o
       # arquivo versionado é exatamente o que o gerador produz, o que impede uma
@@ -82,7 +82,7 @@ jobs:
         run: |
           uv venv /tmp/limpo
           VIRTUAL_ENV=/tmp/limpo uv pip install dist/*.whl
-          /tmp/limpo/bin/python -c "import nfsenacional; print(nfsenacional.__version__)"
+          /tmp/limpo/bin/python -c "import nfse_sefin; print(nfse_sefin.__version__)"
 
       - uses: actions/upload-artifact@v7
         with:

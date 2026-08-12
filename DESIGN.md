@@ -1,4 +1,4 @@
-# Design: nfsenacional — biblioteca Python MIT para o Sistema Nacional NFS-e
+# Design: nfse-sefin — biblioteca Python MIT para o Sistema Nacional NFS-e
 
 Revisão 3.1 — aprovada em 2026-08-11.
 Sessão de resolução de gates: OQ1, OQ2, OQ3, OQ4, OQ6 e OQ7 fechados com dado verificado.
@@ -260,7 +260,7 @@ remendos.
 - **Python 3.10+**, `mypy --strict`, type hints completos em toda API pública.
 - **Thread-safe**: `NFSeClient` instanciado uma vez, reutilizado em múltiplas threads.
   Sem estado mutável por requisição na instância.
-- **Nunca logar chave privada.** Logger nomeado `nfsenacional`, `logging` padrão, nunca `print`.
+- **Nunca logar chave privada.** Logger nomeado `nfse_sefin`, `logging` padrão, nunca `print`.
   `DEBUG` para payload XML, `INFO` para eventos de negócio.
 - **Dependências mínimas** no núcleo: `nfelib`, `httpx`, `cryptography`, `lxml`.
   PDF via extra `[pdf]`. Ver a nota sobre `signxml` em Premissas (P10).
@@ -283,8 +283,23 @@ P10 a P13 são novas.
 `brans-nfe`), uma biblioteca de bindings (`nfelib`, que não é cliente), um pacote que ocupa
 o nome sem cobertura verificável, e um pacote fiscal amplo (`erpbrasil.edoc`).
 
-**P2. O nome `nfsenacional` segue livre.** Reconfirmado nesta sessão: PyPI devolve 404.
-`nfse-nacional` e `nfse_nacional` continuam ocupados por mupisystems.
+**P2 (refeita em 2026-08-11 — a premissa estava errada e o nome mudou).**
+
+A revisão 3 concluiu que `nfsenacional` estava livre porque a API do PyPI devolvia 404.
+**404 significa "não registrado", não "registrável".** Ao cadastrar o pending publisher,
+o PyPI recusou: *"O nome do projeto é muito semelhante a um projeto existente"*.
+
+A regra que pegou: o PyPI compara nomes **removendo todos os separadores**.
+`nfse-nacional` (mupisystems) vira `nfsenacional` — o nome pedido era colisão exata desde
+o início, e o método de verificação por 404 nunca teria detectado isso.
+
+**Nome escolhido: `nfse-sefin`**, pacote de import `nfse_sefin`. Mantém "nfse", que é o
+que o dev de ERP digita na busca, e troca a segunda palavra inteira, o que o afasta do
+nome bloqueado sem depender de sorte na checagem de similaridade. Também é preciso: quem
+emite é a SEFIN, distinção que esta revisão existe para registrar.
+
+Verificação correta, para a próxima vez: além do 404, conferir que o nome **sem
+separadores** não coincide com o de nenhum projeto existente do espaço.
 
 **P3 (reescrita). `nfelib` é a base certa, e o teto que a revisão 2 enxergou não existe do
 jeito que ela descreveu.**
@@ -440,7 +455,7 @@ definitivamente não deveria precisar saber.
 ### Arquitetura
 
 ```
-nfsenacional/
+nfse_sefin/
   __init__.py          NFSeClient, Certificate, Ambiente, exports principais
   ambientes.py         enum Ambiente + QUATRO bases (SEFIN, ADN raiz, ADN parametrização, ADN contribuintes)
   cert.py              from_pfx(); ssl.SSLContext (write 0600 -> close -> load -> unlink)
@@ -493,8 +508,8 @@ usuário garante que todo mundo tome essa rejeição uma vez.
 ### API pública v0.2.0
 
 ```python
-from nfsenacional import NFSeClient, Certificate, Ambiente
-from nfsenacional.errors import MunicipioNaoAderente, RejeicaoNFSe
+from nfse_sefin import NFSeClient, Certificate, Ambiente
+from nfse_sefin.errors import MunicipioNaoAderente, RejeicaoNFSe
 
 cert   = Certificate.from_pfx("empresa.pfx", password="senha")
 client = NFSeClient(cert, ambiente=Ambiente.PRODUCAO_RESTRITA)   # perfil auto
@@ -592,7 +607,7 @@ recusar, sem exceção).
 ## Success Criteria
 
 **v0.1.0**
-- `pip install nfsenacional` e `nfse-doctor --municipio 3304557 --pfx empresa.pfx` funciona
+- `pip install nfse-sefin` e `nfse-doctor --municipio 3304557 --pfx empresa.pfx` funciona
   em menos de 5 minutos, partindo de zero, sem ler documentação.
 - `nfse-doctor` tem código de saída distinto para: município não aderido, certificado
   inválido ou vencido, falha de handshake mTLS, PKCS#12 ilegível, sucesso.
@@ -620,8 +635,8 @@ recusar, sem exceção).
 
 ## Distribution Plan
 
-- **Canal:** PyPI, nome `nfsenacional` (404 no PyPI em 2026-08-11, livre). Build com `hatch`.
-- **Entry point:** `[project.scripts]` → `nfse-doctor = "nfsenacional.doctor:main"`.
+- **Canal:** PyPI, nome `nfse-sefin`. Pacote de import `nfse_sefin`. Build com `hatch`.
+- **Entry point:** `[project.scripts]` → `nfse-doctor = "nfse_sefin.doctor:main"`.
 - **Repositório:** GitHub público, MIT, `LICENSE` na raiz.
 - **CI/CD:** GitHub Actions. Em PR: `ruff` + `mypy --strict` + `pytest` na matriz
   Python 3.10-3.13. Em tag `v*`: build e publish via **Trusted Publishing** (OIDC, sem token
@@ -755,7 +770,7 @@ Sem gates. O caminho está livre para código.
 O código do v0.1.0 está completo e o CI está verde. Falta o que não é código:
 
 1. **Cadastrar o Trusted Publishing no PyPI** — `pypi.org/manage/account/publishing/`,
-   projeto `nfsenacional`, dono `claudio-mas`, repo `nfse_nacional`, workflow
+   projeto `nfse-sefin`, dono `claudio-mas`, repo `nfse_nacional`, workflow
    `release.yml`, ambiente `pypi`. Sem isso a primeira tag `v*` falha na publicação.
 2. **Decidir a visibilidade do repositório.** Está privado. O design prevê GitHub
    público MIT, e a issue aberta no `brans-nfe` oferece compartilhar este documento.

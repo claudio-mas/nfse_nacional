@@ -1,4 +1,4 @@
-"""Testes de `nfsenacional.cert`.
+"""Testes de `nfse_sefin.cert`.
 
 Três coisas aqui não são cobertura de rotina e merecem existir por si:
 
@@ -18,8 +18,8 @@ from pathlib import Path
 
 import pytest
 
-from nfsenacional.cert import DIAS_AVISO_VENCIMENTO, Certificate
-from nfsenacional.errors import (
+from nfse_sefin.cert import DIAS_AVISO_VENCIMENTO, Certificate
+from nfse_sefin.errors import (
     CertificadoError,
     CertificadoIlegivelError,
     CertificadoVencidoError,
@@ -211,14 +211,14 @@ def test_ssl_context_nao_deixa_arquivo_para_tras(pfx_valido: PfxGerado) -> None:
     """P4: a chave privada toca o disco, e tem de sair de lá.
 
     Compara o conteúdo do diretório temporário antes e depois. Qualquer resíduo
-    `nfsenacional-*.pem` é chave privada ICP-Brasil esquecida em claro.
+    `nfse-sefin-*.pem` é chave privada ICP-Brasil esquecida em claro.
     """
     cert = Certificate.from_bytes(pfx_valido.blob, pfx_valido.senha)
     temporarios = Path(tempfile.gettempdir())
 
-    antes = set(temporarios.glob("nfsenacional-*.pem"))
+    antes = set(temporarios.glob("nfse-sefin-*.pem"))
     cert.ssl_context()
-    depois = set(temporarios.glob("nfsenacional-*.pem"))
+    depois = set(temporarios.glob("nfse-sefin-*.pem"))
 
     assert depois == antes
 
@@ -235,11 +235,11 @@ def test_ssl_context_apaga_o_arquivo_mesmo_quando_falha(
 
     monkeypatch.setattr(ssl.SSLContext, "load_cert_chain", explode)
 
-    antes = set(temporarios.glob("nfsenacional-*.pem"))
+    antes = set(temporarios.glob("nfse-sefin-*.pem"))
     with pytest.raises(ssl.SSLError):
         cert.ssl_context()
 
-    assert set(temporarios.glob("nfsenacional-*.pem")) == antes
+    assert set(temporarios.glob("nfse-sefin-*.pem")) == antes
 
 
 def test_arquivo_temporario_nasce_com_0600(

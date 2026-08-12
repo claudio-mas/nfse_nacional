@@ -36,9 +36,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from nfsenacional.ambientes import Bases
-from nfsenacional.errors import TransporteError
-from nfsenacional.transport import Transporte
+from nfse_sefin.ambientes import Bases
+from nfse_sefin.errors import TransporteError
+from nfse_sefin.transport import Transporte
 
 __all__ = ["Convenio", "consultar_convenio", "CAMINHOS_CANDIDATOS", "valida_codigo_ibge"]
 

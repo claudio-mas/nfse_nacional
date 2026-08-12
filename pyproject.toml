@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "nfsenacional"
+name = "nfse-sefin"
 version = "0.1.0.dev0"
 description = "Cliente Python para a API REST do Sistema Nacional NFS-e (SEFIN Nacional / gov.br/nfse)"
 readme = "README.md"
@@ -57,13 +57,13 @@ Repository = "https://github.com/claudio-mas/nfse_nacional"
 Issues = "https://github.com/claudio-mas/nfse_nacional/issues"
 
 [project.scripts]
-nfse-doctor = "nfsenacional.doctor:main"
+nfse-doctor = "nfse_sefin.doctor:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["nfsenacional"]
+packages = ["nfse_sefin"]
 
 [tool.hatch.build.targets.sdist]
-include = ["nfsenacional", "tests", "Schemas", "DESIGN.md", "README.md", "LICENSE"]
+include = ["nfse_sefin", "tests", "Schemas", "DESIGN.md", "README.md", "LICENSE"]
 
 [tool.ruff]
 target-version = "py310"
@@ -78,12 +78,12 @@ select = ["E", "F", "I", "UP"]
 [tool.ruff.lint.per-file-ignores]
 # Catálogo gerado: as descrições oficiais têm até 455 caracteres e quebrá-las
 # tornaria o diff ilegível a cada republicação do anexo.
-"nfsenacional/catalogos/servicos.py" = ["E501"]
+"nfse_sefin/catalogos/servicos.py" = ["E501"]
 
 [tool.ruff.format]
 # O arquivo é escrito por `tools/gerar_catalogo_servicos.py`. Deixar o formatador
 # reescrevê-lo faria o `--conferir` acusar divergência a cada execução.
-exclude = ["nfsenacional/catalogos/servicos.py"]
+exclude = ["nfse_sefin/catalogos/servicos.py"]
 
 [tool.mypy]
 python_version = "3.10"

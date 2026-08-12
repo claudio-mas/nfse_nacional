@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 
 import pytest
 
-from nfsenacional.ambientes import BASES, Ambiente, Bases, bases_de
+from nfse_sefin.ambientes import BASES, Ambiente, Bases, bases_de
 
 # As oito URLs, escritas à mão a partir do DESIGN.md. Duplicação deliberada: se o
 # teste importasse a mesma constante que testa, não testaria nada.

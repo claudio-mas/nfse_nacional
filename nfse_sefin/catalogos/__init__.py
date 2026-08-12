@@ -10,7 +10,7 @@ versionado é exatamente o que sai do anexo versionado.
 
 from __future__ import annotations
 
-from nfsenacional.catalogos.servicos import (
+from nfse_sefin.catalogos.servicos import (
     SERVICOS,
     TOTAL_DE_SERVICOS,
     Servico,

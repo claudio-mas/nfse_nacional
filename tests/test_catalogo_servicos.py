@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from nfsenacional.catalogos import (
+from nfse_sefin.catalogos import (
     SERVICOS,
     TOTAL_DE_SERVICOS,
     Servico,

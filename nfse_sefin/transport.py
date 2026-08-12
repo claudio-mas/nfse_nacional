@@ -33,8 +33,8 @@ from typing import Any
 
 import httpx
 
-from nfsenacional.cert import Certificate
-from nfsenacional.errors import (
+from nfse_sefin.cert import Certificate
+from nfse_sefin.errors import (
     MensagemSefin,
     RespostaInvalidaError,
     TransporteError,
@@ -49,7 +49,7 @@ __all__ = [
     "TIMEOUT_PADRAO",
 ]
 
-logger = logging.getLogger("nfsenacional")
+logger = logging.getLogger("nfse_sefin")
 
 METODOS_COM_RETRY = frozenset({"GET", "HEAD"})
 """P8. `POST` fica de fora: emissão não é idempotente."""

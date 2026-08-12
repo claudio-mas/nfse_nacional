@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Gera `nfsenacional/catalogos/servicos.py` a partir do Anexo I.
+"""Gera `nfse_sefin/catalogos/servicos.py` a partir do Anexo I.
 
 Este script é ferramenta de build, não faz parte do pacote publicado. O módulo que
 ele gera carrega os dados embutidos, porque o Anexo I não vai na wheel e a
@@ -37,7 +37,7 @@ from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
 ANEXO = RAIZ / "anexo_i-sefin_adn-dps_nfse-snnfse-v1-01-20260209.md"
-DESTINO = RAIZ / "nfsenacional" / "catalogos" / "servicos.py"
+DESTINO = RAIZ / "nfse_sefin" / "catalogos" / "servicos.py"
 
 SECAO = "MUN.INCID_INFO.SERV."
 

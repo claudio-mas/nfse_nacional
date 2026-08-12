@@ -1,4 +1,4 @@
-"""Testes de `nfsenacional.transport`.
+"""Testes de `nfse_sefin.transport`.
 
 O teste que mais importa aqui é `test_post_nunca_repete`: repetir um `POST /nfse`
 significa emitir a mesma nota fiscal duas vezes. É o tipo de defeito que passa em
@@ -14,13 +14,13 @@ import httpx
 import pytest
 from pytest_httpx import HTTPXMock
 
-from nfsenacional.errors import (
+from nfse_sefin.errors import (
     MensagemSefin,
     NFSeError,
     RespostaInvalidaError,
     TransporteError,
 )
-from nfsenacional.transport import (
+from nfse_sefin.transport import (
     METODOS_COM_RETRY,
     Transporte,
     de_gzip_b64,
@@ -337,7 +337,7 @@ def test_nao_fecha_cliente_injetado(httpx_mock: HTTPXMock) -> None:
 
 def test_contexto_fecha_cliente_proprio(pfx_valido: Any) -> None:
     """Sem cliente injetado, o transporte monta o dele — e o fecha."""
-    from nfsenacional.cert import Certificate
+    from nfse_sefin.cert import Certificate
 
     cert = Certificate.from_bytes(pfx_valido.blob, pfx_valido.senha)
     with Transporte(cert) as transporte:

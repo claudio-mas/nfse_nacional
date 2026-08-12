@@ -39,7 +39,7 @@ from cryptography.hazmat.primitives.serialization import (
 from cryptography.hazmat.primitives.serialization.pkcs12 import PKCS12PrivateKeyTypes
 from cryptography.x509.oid import NameOID
 
-from nfsenacional.errors import CertificadoIlegivelError, CertificadoVencidoError
+from nfse_sefin.errors import CertificadoIlegivelError, CertificadoVencidoError
 
 __all__ = ["Certificate", "DIAS_AVISO_VENCIMENTO"]
 
@@ -236,7 +236,7 @@ class Certificate:
         `load_cert_chain` levantar.
         """
         contexto = ssl.create_default_context()
-        descritor, caminho = tempfile.mkstemp(prefix="nfsenacional-", suffix=".pem")
+        descritor, caminho = tempfile.mkstemp(prefix="nfse-sefin-", suffix=".pem")
         try:
             os.fchmod(descritor, 0o600)
             with os.fdopen(descritor, "wb") as arquivo:

@@ -15,8 +15,8 @@ import httpx
 import pytest
 from pytest_httpx import HTTPXMock
 
-from nfsenacional.ambientes import Ambiente, bases_de
-from nfsenacional.doctor import CodigoSaida, main
+from nfse_sefin.ambientes import Ambiente, bases_de
+from nfse_sefin.doctor import CodigoSaida, main
 from tests.conftest import PfxGerado
 
 BASES = bases_de(Ambiente.PRODUCAO_RESTRITA)
@@ -34,7 +34,7 @@ def sem_contexto_tls(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     import ssl
 
-    from nfsenacional.cert import Certificate
+    from nfse_sefin.cert import Certificate
 
     monkeypatch.setattr(Certificate, "ssl_context", lambda self: ssl.create_default_context())
 
@@ -369,7 +369,7 @@ def test_transporte_e_fechado_no_caminho_feliz(
 ) -> None:
     """O `with` do comando tem de devolver a conexão."""
     fechados: list[Any] = []
-    from nfsenacional.transport import Transporte
+    from nfse_sefin.transport import Transporte
 
     original = Transporte.close
 

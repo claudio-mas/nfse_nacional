@@ -11,8 +11,8 @@ seção "Ordem de release":
 
 from __future__ import annotations
 
-from nfsenacional.ambientes import BASES, Ambiente, Bases, bases_de
-from nfsenacional.cert import Certificate
+from nfse_sefin.ambientes import BASES, Ambiente, Bases, bases_de
+from nfse_sefin.cert import Certificate
 
 __all__ = ["BASES", "Ambiente", "Bases", "Certificate", "bases_de", "__version__"]
 

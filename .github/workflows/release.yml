@@ -6,7 +6,7 @@ name: Release
 # como segredo neste repositório. Antes da primeira publicação, cadastre o
 # publisher em https://pypi.org/manage/account/publishing/ com:
 #
-#   projeto  : nfsenacional
+#   projeto  : nfse_sefin
 #   dono     : claudio-mas
 #   repo     : nfse_nacional
 #   workflow : release.yml
@@ -39,7 +39,7 @@ jobs:
       - name: Conferir que a tag bate com a versão do pacote
         run: |
           tag="${GITHUB_REF_NAME#v}"
-          pkg="$(uv run python -c 'import nfsenacional; print(nfsenacional.__version__)')"
+          pkg="$(uv run python -c 'import nfse_sefin; print(nfse_sefin.__version__)')"
           echo "tag=$tag pacote=$pkg"
           if [ "$tag" != "$pkg" ]; then
             echo "::error::tag $tag != versão do pacote $pkg" >&2
