@@ -4,7 +4,10 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nfse-sefin"
-version = "0.1.0.dev0"
+# Fonte única da versão: `nfse_sefin/__init__.py`. Duas declarações divergem, e a
+# guarda do release.yml compara a tag com `__version__` enquanto o artefato sairia
+# com o número do pyproject — a checagem passaria e o PyPI receberia outra versão.
+dynamic = ["version"]
 description = "Cliente Python para a API REST do Sistema Nacional NFS-e (SEFIN Nacional / gov.br/nfse)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -58,6 +61,9 @@ Issues = "https://github.com/claudio-mas/nfse_nacional/issues"
 
 [project.scripts]
 nfse-doctor = "nfse_sefin.doctor:main"
+
+[tool.hatch.version]
+path = "nfse_sefin/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["nfse_sefin"]

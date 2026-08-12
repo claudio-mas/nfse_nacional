@@ -167,6 +167,55 @@ def test_busca_sem_resultado() -> None:
     assert buscar_servico("colonizacao de marte") == ()
 
 
+def test_busca_por_frase_que_nao_e_substring() -> None:
+    """O caso de manchete do design, e ele falhava.
+
+    "banho e tosa" é o que um dev de petshop digita. A lista nacional não tem a
+    palavra "tosa" em lugar nenhum, então uma busca só por substring devolvia zero
+    para a consulta mais óbvia que este catálogo deveria atender.
+    """
+    assert [s.codigo for s in buscar_servico("banho e tosa")] == ["060301"]
+    assert [s.codigo for s in buscar_servico("banho e tosa de caes")] == ["060301"]
+
+
+def test_frase_inteira_tem_prioridade_sobre_termos_soltos() -> None:
+    """Quem digita a frase exata quer o casamento exato, não o mais tolerante."""
+    exatos = buscar_servico("construcao civil")
+    assert len(exatos) > 1
+    assert all("construcao civil" in _sem_acento(s.descricao) for s in exatos)
+
+
+def _sem_acento(texto: str) -> str:
+    import unicodedata
+
+    decomposto = unicodedata.normalize("NFKD", texto)
+    return "".join(c for c in decomposto if not unicodedata.combining(c)).lower()
+
+
+def test_palavras_vazias_nao_casam_com_tudo() -> None:
+    """Sem filtro de palavra irrelevante, "e" casaria com quase todo o catálogo."""
+    assert buscar_servico("de e do") == ()
+
+
+def test_todos_os_termos_tem_prioridade_sobre_algum() -> None:
+    """ "veterinaria hospitais" casa os dois termos em um serviço só, e para ali."""
+    assert [s.codigo for s in buscar_servico("veterinaria hospitais")] == ["050201"]
+
+
+def test_busca_tolerante_ordena_por_termos_casados() -> None:
+    """Quando ninguém casa tudo, quem casa mais vem primeiro.
+
+    "banho hospitais veterinaria" não descreve serviço nenhum por inteiro, mas
+    `050201` casa dois dos três termos e tem de encabeçar a lista.
+    """
+    resultados = buscar_servico("banho hospitais veterinaria")
+
+    assert len(resultados) > 1
+    primeiro = _sem_acento(resultados[0].descricao)
+    assert "veterinaria" in primeiro and "hospitais" in primeiro
+    assert resultados[0].codigo == "050201"
+
+
 def test_busca_devolve_tupla_imutavel() -> None:
     assert isinstance(buscar_servico("banho"), tuple)
 

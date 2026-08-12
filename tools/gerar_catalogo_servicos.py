@@ -223,11 +223,34 @@ def por_codigo(codigo: str) -> Servico | None:
     return _POR_CODIGO.get(limpo.zfill(6))
 
 
-def buscar_servico(texto: str) -> tuple[Servico, ...]:
-    """Todos os serviços cuja descrição contém `texto`, ignorando acento e caixa.
+# Palavras curtas demais ou vazias de sentido para pesar numa busca. Sem isto,
+# "banho e tosa" casaria com toda descrição que contenha "e".
+_IRRELEVANTES = frozenset(
+    {{"de", "da", "do", "das", "dos", "e", "ou", "em", "no", "na", "com", "por", "para"}}
+)
 
-    Existe para o dev que sabe que vende "banho e tosa" e não faz ideia de que isso
-    é `cTribNac` 050201. Um texto que pareça código cai na busca exata.
+
+def _termos(texto: str) -> list[str]:
+    return [p for p in _normalizar(texto).split() if len(p) >= 3 and p not in _IRRELEVANTES]
+
+
+def buscar_servico(texto: str) -> tuple[Servico, ...]:
+    """Procura serviços por descrição, ignorando acento e caixa.
+
+    Existe para o dev que sabe que vende "banho e tosa" e não faz ideia de que a
+    lista nacional chama isso de `060301`. Um texto que pareça código cai na busca
+    exata por `cTribNac`.
+
+    A procura tem três degraus, do mais específico ao mais tolerante, e para no
+    primeiro que devolver alguma coisa:
+
+    1. a frase inteira como substring da descrição;
+    2. descrições que contenham **todos** os termos, em qualquer ordem;
+    3. descrições que contenham **algum** termo, ordenadas por quantos casaram.
+
+    O degrau 3 é o que faz "banho e tosa" encontrar `060301`: a lista nacional não
+    tem a palavra "tosa" em lugar nenhum, e uma busca só por substring devolveria
+    vazio para a consulta mais óbvia que este catálogo deveria atender.
     """
     if not texto or not texto.strip():
         return ()
@@ -237,7 +260,29 @@ def buscar_servico(texto: str) -> tuple[Servico, ...]:
         return (exato,)
 
     alvo = _normalizar(texto)
-    return tuple(servico for descricao, servico in _BUSCAVEL if alvo in descricao)
+    frase = tuple(servico for descricao, servico in _BUSCAVEL if alvo in descricao)
+    if frase:
+        return frase
+
+    termos = _termos(texto)
+    if not termos:
+        return ()
+
+    todos = tuple(
+        servico
+        for descricao, servico in _BUSCAVEL
+        if all(termo in descricao for termo in termos)
+    )
+    if todos:
+        return todos
+
+    algum = [
+        (sum(termo in descricao for termo in termos), servico)
+        for descricao, servico in _BUSCAVEL
+        if any(termo in descricao for termo in termos)
+    ]
+    algum.sort(key=lambda par: (-par[0], par[1].codigo))
+    return tuple(servico for _, servico in algum)
 '''
 
 

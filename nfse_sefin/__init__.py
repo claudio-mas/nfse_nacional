@@ -16,4 +16,4 @@ from nfse_sefin.cert import Certificate
 
 __all__ = ["BASES", "Ambiente", "Bases", "Certificate", "bases_de", "__version__"]
 
-__version__ = "0.1.0.dev0"
+__version__ = "0.1.0"
