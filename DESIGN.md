@@ -798,8 +798,31 @@ Sem gates. O caminho está livre para código.
    Verificado contra o servidor real, não só mock: apontado para
    `adn.producaorestrita.nfse.gov.br` com certificado auto-assinado, o ADN recusa no
    TLS e o `doctor` classifica como `MTLS_FALHOU`. Confirma o OQ6 na prática.
-9. `perfis.py` + `signing.py` manual + `catalogos/rejeicoes.py` + `facade/` + `adapters/` +
-   `emitir`/`consultar`/`/dps/{id}`/`danfse` + `--probe-assinatura` — v0.2.0.
+9. **v0.2.0 — em andamento.** O item é grande, então vai em pedaços, com CI verde em
+   cada um:
+
+   | | escopo | estado |
+   |---|---|---|
+   | 9a | `perfis.py` + `signing.py` | **feito** em 2026-08-11 (`ba4c640`) |
+   | 9b | `catalogos/rejeicoes.py` | **feito** em 2026-08-11 (`7fd40fe`) |
+   | 9c | `facade/` + `adapters/nfelib.py` | **próximo** |
+   | 9d | `emitir` / `consultar` / `/dps/{id}` / `danfse` | pendente |
+   | 9e | `--probe-assinatura` | pendente, parcialmente travado no OQ12 |
+
+   **Retomar por 9c.** É a fachada que este documento chama de "a única coisa que as
+   libs MIT concorrentes não têm": traduzir `dps.infDPS.serv.cServ.cTribNac` para algo
+   que um dev de petshop escreve sem abrir o Anexo I. `adapters/nfelib.py` é o único
+   módulo autorizado a importar `nfelib` e o único que serializa — inclusive o
+   `ns_map={None: NAMESPACE}` que evita o E1228.
+
+   O que 9a e 9b já deixaram pronto para 9c usar: `assinar(xml, cert, perfil)` devolve
+   bytes finais verificados; `por_codigo("E0014")` devolve a regra com caminho XML;
+   `Transporte` faz envelope, gzip+base64 e retry só em leitura.
+
+   Achado de 9a que vale lembrar em 9c: **nada pode re-serializar a árvore depois de
+   assinada.** A fachada monta, o adapter serializa, `signing.assinar` assina, e o byte
+   que sai vai direto para `gzip_b64`. Qualquer volta pelo `xsdata` no meio quebra o
+   digest sem avisar.
 
 ## v0.1.0 — PUBLICADO em 2026-08-11
 
