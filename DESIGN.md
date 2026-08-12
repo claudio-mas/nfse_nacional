@@ -656,7 +656,7 @@ Sem gates. O caminho está livre para código.
 1. ~~**Abrir issue no `brans-nfe`** perguntando se o mantenedor quer co-manutenção.~~
    **FEITO em 2026-08-11** — [badbrans/brans-nfe#3](https://github.com/badbrans/brans-nfe/issues/3).
    Aguardando resposta. **Data de corte: 2026-08-25.** Sem resposta até lá, tratar como
-   "prefiro tocar sozinho" e seguir com biblioteca própria, sem reabrir a pergunta.
+   "prefiro seguir sozinho" e continuar com biblioteca própria, sem reabrir a pergunta.
 
    Contexto que pesa na leitura do silêncio: o repo teve o último push em 2026-06-10 e
    nunca recebeu issue nem PR de fora — esta é a primeira interação externa da vida dele.
