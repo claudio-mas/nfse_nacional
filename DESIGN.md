@@ -157,6 +157,42 @@ Regra de implementação que sai daí: a forma de assinatura de v1.00 (exatament
 transforms, `KeyInfo` presente, C14N `REC-xml-c14n-20010315`) valida **sob os dois schemas**.
 Só o par de hash é irreconciliável. Então construa sempre a forma estrita e varie só o hash.
 
+### Defeito no XSD 1.01 publicado (achado em 2026-08-11, ao começar o v0.2.0)
+
+`Schemas/1.01/tiposSimples_v1.01.xsd` define a série da DPS assim:
+
+```xml
+<xs:simpleType name="TSSerieDPS">
+  <xs:restriction base="xs:string">
+    <xs:pattern value="^0{0,4}\d{1,5}$"/>
+```
+
+Em XML Schema o `pattern` já é **ancorado implicitamente**, e `^` e `$` **não são
+âncoras** — são caracteres literais. O padrão portanto exige que o valor comece com `^`
+e termine com `$`. Verificado com `lxml`:
+
+| valor de `serie` | resultado |
+|---|---|
+| `900` | REJEITA |
+| `1` | REJEITA |
+| `00001` | REJEITA |
+| `^900$` | ACEITA |
+
+A 1.00 não tem esse problema: lá `TSSerieDPS` é só `minLength 1 / maxLength 5`, sem
+`pattern`. É o único padrão com âncora literal nos 10 arquivos da 1.01.
+
+Três consequências:
+
+1. **Nenhuma DPS valida localmente contra `Schemas/1.01/`.** Toda DPS tem `serie`. O
+   critério de sucesso "a assinatura valida contra os dois schemas" continua alcançável
+   porque `xmldsig-core-schema.xsd` é arquivo à parte; validar o **corpo** da DPS sob a
+   1.01 não é.
+2. **O XSD 1.01 publicado não pode ser o que a SEFIN usa.** O `pynfse-nacional` emite com
+   `versao="1.01"` e afirma funcionar em produção. Se funciona, o servidor valida com
+   outra coisa. Isso reforça o Approach C: a documentação não decide, o servidor decide.
+3. Vale reportar ao gov.br, e avisar `nfelib`, `brans-nfe` e `pynfse-nacional` — qualquer
+   um que tente validar 1.01 localmente vai bater nisso.
+
 ### Esquemas (rebaixa OQ1 de gate a item de roadmap)
 
 Baixado `nfse-esquemas_xsd-v1-01-20260209.zip` de gov.br/nfse. Duas correções factuais:
