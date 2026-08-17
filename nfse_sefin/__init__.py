@@ -11,9 +11,43 @@ seção "Ordem de release":
 
 from __future__ import annotations
 
+from nfse_sefin._version import __version__
 from nfse_sefin.ambientes import BASES, Ambiente, Bases, bases_de
+from nfse_sefin.catalogos.servicos import buscar_servico
 from nfse_sefin.cert import Certificate
+from nfse_sefin.facade import (
+    DPS,
+    Endereco,
+    OpcaoSimplesNacional,
+    Prestador,
+    RegimeApuracaoSN,
+    RegimeEspecial,
+    RetencaoISSQN,
+    Servico,
+    TipoEmitente,
+    Tomador,
+    TotalTributos,
+    TributacaoISSQN,
+)
 
-__all__ = ["BASES", "Ambiente", "Bases", "Certificate", "bases_de", "__version__"]
-
-__version__ = "0.1.0"
+__all__ = [
+    "BASES",
+    "DPS",
+    "Ambiente",
+    "Bases",
+    "Certificate",
+    "Endereco",
+    "OpcaoSimplesNacional",
+    "Prestador",
+    "RegimeApuracaoSN",
+    "RegimeEspecial",
+    "RetencaoISSQN",
+    "Servico",
+    "TipoEmitente",
+    "Tomador",
+    "TotalTributos",
+    "TributacaoISSQN",
+    "bases_de",
+    "buscar_servico",
+    "__version__",
+]

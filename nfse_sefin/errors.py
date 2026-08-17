@@ -22,6 +22,7 @@ __all__ = [
     "RespostaInvalidaError",
     "MunicipioNaoAderente",
     "RejeicaoNFSe",
+    "DadosInvalidosError",
 ]
 
 
@@ -139,6 +140,20 @@ class RespostaInvalidaError(NFSeError):
     Separado de `TransporteError` de propósito: aqui a conversa funcionou e o
     contrato é que mudou. É o sintoma de a API ter sido alterada sem aviso, e merece
     investigação diferente de uma queda de rede.
+    """
+
+
+class DadosInvalidosError(NFSeError):
+    """A DPS não passou na validação local, antes de sair da máquina.
+
+    Separado de `RejeicaoNFSe` por onde a decisão foi tomada: aqui foi aqui, com o
+    Anexo I na mão; lá foi o servidor. A diferença importa porque esta exceção é
+    barata — não gastou conexão, certificado nem número de DPS — e porque a mensagem
+    pode apontar o campo pelo nome que o chamador escreveu, não pelo caminho XML.
+
+    Só cobre o que é decidível offline (P7 no `DESIGN.md`): dígito verificador,
+    formato, e as três regras de `totTrib` que dependem só de `opSimpNac`. Tudo que
+    exige consulta continua sendo trabalho do servidor.
     """
 
 

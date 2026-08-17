@@ -62,6 +62,55 @@ por_codigo("10101")            # -> 010101, com o zero que o Excel comeu
 por_codigo("01.01.01")         # -> o mesmo
 ```
 
+## Montar uma DPS
+
+Em desenvolvimento na v0.2.0. A DPS já monta, valida e assina; o envio entra a seguir.
+
+O leiaute chama o código do serviço de `dps.infDPS.serv.cServ.cTribNac`. Ninguém
+deveria precisar saber disso:
+
+```python
+from datetime import date
+from decimal import Decimal
+
+from nfse_sefin import DPS, OpcaoSimplesNacional, Prestador, Servico
+
+dps = DPS(
+    prestador=Prestador(
+        cnpj="01.761.135/0001-32",                  # pontuação e DV conferidos aqui
+        inscricao_municipal="12345",
+        simples_nacional=OpcaoSimplesNacional.MEI,
+    ),
+    servico=Servico(
+        codigo="060301",                            # cTribNac, e ele tem de existir
+        descricao="Banho e tosa",
+        valor=Decimal("150.00"),                    # Decimal, nunca float
+        municipio_prestacao="3304557",              # código IBGE, não o nome
+    ),
+    serie="1",
+    numero="42",                                    # o contador é do seu ERP
+    competencia=date(2026, 8, 17),
+    municipio_emissor="3304557",
+)
+
+dps.identificador   # DPS330455720176113500013200001000000000000042 — as 45 posições
+```
+
+O que isso já poupa, tudo antes de gastar uma conexão:
+
+- **O identificador de 45 posições**, montado na ordem que `E0004` exige — com
+  `serie` zerada à esquerda no `Id` e não no elemento, e CPF completado com `000`.
+- **`dhEmi` sem microssegundo.** `datetime.now(tz).isoformat()` produz um valor que o
+  XSD recusa, e a rejeição não diz por quê.
+- **O grupo `totTrib`.** É obrigatório, é um `xs:choice` de quatro, e qual dos quatro
+  é permitido depende do Simples Nacional do prestador — regra que está no Anexo I
+  como `E0710`, `E0712` e `E0713`, não no schema. MEI tem padrão; os outros regimes
+  falham com a instrução de qual construtor usar.
+- **Dígito verificador** de CPF e CNPJ, código IBGE de 7 dígitos, CEP de 8,
+  `cIntContrib` sem hífen, alíquota dentro do teto de um dígito do `pAliq`.
+- **Caracteres que o `TSString` recusa** — travessão e aspas curvas coladas de um
+  editor de texto passam despercebidos até a recepção rejeitar.
+
 ## Certificado
 
 Certificado ICP-Brasil **A1** (arquivo `.pfx`/`.p12`), autenticação mTLS. A3 (token,

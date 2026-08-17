@@ -63,7 +63,7 @@ Issues = "https://github.com/claudio-mas/nfse_nacional/issues"
 nfse-doctor = "nfse_sefin.doctor:main"
 
 [tool.hatch.version]
-path = "nfse_sefin/__init__.py"
+path = "nfse_sefin/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["nfse_sefin"]

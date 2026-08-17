@@ -506,8 +506,13 @@ nfse_sefin/
                        TransporteError, RejeicaoNFSe, EventoRejeitado (idioma cStat, P12)
   convenio.py          preflight municipal contra {ADN}/parametrizacao/{codMun}/convenio
   doctor.py            CLI de diagnóstico; entry point `nfse-doctor`; --probe-assinatura
-  facade/
-    prestador.py  tomador.py  servico.py  dps.py  nfse.py        dados puros, sem nfelib
+  facade/                                            dados puros, sem importar nfelib
+    enums.py           os códigos do leiaute com nome: opSimpNac "3" -> ME_EPP
+    documentos.py      DV de CPF/CNPJ, código IBGE, CEP, telefone, regras do TSString
+    pessoa.py          Endereco, Prestador, Tomador (choice CNPJ/CPF, regTrib)
+    servico.py         Servico: serv + valores num objeto só
+    tributos.py        TotalTributos — o choice totTrib e a matriz E0710/E0712/E0713
+    dps.py             DPS: identificador de 45 posições, dhEmi sem microssegundo
   catalogos/
     servicos.py        337 subitens; buscar_servico(texto); zfill(6) com assertion de build
     rejeicoes.py       429 regras com E####; caminho XML Optional (forward-fill de coluna)
@@ -519,6 +524,11 @@ nfse_sefin/
 `facade/` são dataclasses puras, sem importar `nfelib`. `adapters/nfelib.py` é o único
 módulo que importa `nfelib` e o único que converte. Isso mantém a fachada testável sem a
 dependência e concentra a quebra de mapeamento num arquivo quando o leiaute mudar.
+
+A regra não é honra: `test_facade_nao_importa_nfelib` importa `nfse_sefin.facade` num
+subprocesso e falha se `nfelib` aparecer em `sys.modules`. Rodar em subprocesso é o que
+faz o teste valer alguma coisa — a suíte inteira já importou `nfelib` por outros
+caminhos, e checar no processo corrente não provaria nada.
 
 ### Especificação de `signing.py`
 
@@ -805,24 +815,71 @@ Sem gates. O caminho está livre para código.
    |---|---|---|
    | 9a | `perfis.py` + `signing.py` | **feito** em 2026-08-11 (`ba4c640`) |
    | 9b | `catalogos/rejeicoes.py` | **feito** em 2026-08-11 (`7fd40fe`) |
-   | 9c | `facade/` + `adapters/nfelib.py` | **próximo** |
-   | 9d | `emitir` / `consultar` / `/dps/{id}` / `danfse` | pendente |
+   | 9c | `facade/` + `adapters/nfelib.py` | **feito** em 2026-08-17 |
+   | 9d | `emitir` / `consultar` / `/dps/{id}` / `danfse` | **próximo** |
    | 9e | `--probe-assinatura` | pendente, parcialmente travado no OQ12 |
 
-   **Retomar por 9c.** É a fachada que este documento chama de "a única coisa que as
-   libs MIT concorrentes não têm": traduzir `dps.infDPS.serv.cServ.cTribNac` para algo
-   que um dev de petshop escreve sem abrir o Anexo I. `adapters/nfelib.py` é o único
-   módulo autorizado a importar `nfelib` e o único que serializa — inclusive o
-   `ns_map={None: NAMESPACE}` que evita o E1228.
+   **9c entregue.** A fachada monta, valida e assina uma DPS. A separação estrutural
+   é verificada, não prometida: um teste importa `nfse_sefin.facade` num subprocesso
+   e falha se `nfelib` aparecer em `sys.modules`.
 
-   O que 9a e 9b já deixaram pronto para 9c usar: `assinar(xml, cert, perfil)` devolve
-   bytes finais verificados; `por_codigo("E0014")` devolve a regra com caminho XML;
-   `Transporte` faz envelope, gzip+base64 e retry só em leitura.
+   O caminho inteiro roda ponta a ponta sob os dois perfis — fachada → adapter
+   serializa uma vez → `signing.assinar` → `verificar` → `gzip_b64` — e o documento
+   assinado ainda valida contra o `DPS_v1.00.xsd` oficial.
 
-   Achado de 9a que vale lembrar em 9c: **nada pode re-serializar a árvore depois de
-   assinada.** A fachada monta, o adapter serializa, `signing.assinar` assina, e o byte
-   que sai vai direto para `gzip_b64`. Qualquer volta pelo `xsdata` no meio quebra o
-   digest sem avisar.
+   **A evidência mais forte de que o identificador está certo:** o `Id` que a fachada
+   monta bate caractere a caractere com o do `dps-simples.xml`, o sample que a
+   `nfelib` distribui e que saiu do Emissor Web do governo.
+
+   Nove guardas de 9c foram submetidas a teste de mutação — reintroduzir o defeito e
+   confirmar que o teste quebra. As nove pegam: `ns_map`, formato `TSDec15V2`, os dois
+   `zfill` do identificador, o CPF completado com zeros, a remoção do microssegundo, a
+   matriz do `totTrib`, o `regEspTrib=9` sob 1.00, e o isolamento da fachada.
+
+   ### Quatro achados de 9c que o Anexo I não entrega sozinho
+
+   **O grupo `totTrib` acopla dois ramos distantes da árvore.** Ele é obrigatório e é
+   um `xs:choice` de quatro filhos, mas qual deles é permitido depende de
+   `prest/regTrib/opSimpNac`. O XSD não expressa essa ligação; ela existe só como
+   rejeição no anexo — E0710, E0712 e E0713. Daí `TotalTributos` ter quatro
+   construtores nomeados em vez de quatro campos opcionais: escolher errado falha na
+   fachada, com o nome do construtor certo na mensagem.
+
+   | `opSimpNac` | `indTotTrib` | `pTotTribSN` |
+   |---|---|---|
+   | 1 — Não Optante | proibido (E0713) | proibido (E0713) |
+   | 2 — MEI | permitido | proibido (E0710) |
+   | 3 — ME/EPP | proibido (E0712) | permitido |
+
+   Só o MEI tem padrão. ME/EPP e Não Optante exigem um número que mora na
+   contabilidade do cliente, e preencher zero ali declararia tributo estimado de
+   R$ 0,00 em nome dele.
+
+   **`regEspTrib=9` ("Outros") só existe a partir da 1.01.** O
+   `tiposSimples_v1.00.xsd` enumera de 0 a 6; a 1.01 acrescenta o 9 — e o Anexo I,
+   que é v1-01, documenta os oito sem dizer que um deles é novo. Como a `nfelib`
+   2.5.2 só distribui bindings da 1.00, o erro nativo seria um `ValueError` de enum
+   sem contexto. O adapter recusa explicitamente, citando o perfil ativo.
+
+   **Três limites do XSD divergem do que o Anexo I sugere.** `cIntContrib` é
+   `[a-zA-Z0-9]{1,20}` — o anexo diz só "20", e um `PED-42` inocente é rejeição.
+   `cTribMun` é `[0-9]{3}`, não o código IBGE de 7. `pAliq` é `TSDec1V2`, **um** dígito
+   inteiro, teto de 9,99% — coerente com o teto de 5% da LC 116, mas nada no anexo diz
+   isso. Nenhum dos três apareceu na leitura do documento; os três apareceram ao
+   validar contra o XSD.
+
+   **`TSString` recorta o alfabeto em `!` (0x21) a `ÿ` (0xFF).** Acentuação portuguesa
+   passa; travessão, aspas curvas e reticências de processador de texto não. É o que
+   sai de qualquer campo preenchido por copiar-e-colar, e a rejeição não menciona
+   codificação.
+
+   ### Nota de implementação que sobreviveu ao commit
+
+   `__version__` mudou de `__init__.py` para `_version.py`. A fachada precisa da
+   versão para montar `verAplic`, e `__init__.py` passou a exportar a fachada — o
+   ciclo se resolvia por ordem de linha, o que é frágil demais para deixar. O
+   `pyproject.toml` aponta para o arquivo novo; `release.yml` segue lendo
+   `nfse_sefin.__version__` e continua correto.
 
 ## v0.1.0 — PUBLICADO em 2026-08-11
 
