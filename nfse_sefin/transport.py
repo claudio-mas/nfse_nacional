@@ -45,6 +45,7 @@ __all__ = [
     "gzip_b64",
     "de_gzip_b64",
     "normalizar_mensagens",
+    "primeiro_campo",
     "METODOS_COM_RETRY",
     "TIMEOUT_PADRAO",
 ]
@@ -100,11 +101,13 @@ def _texto(valor: object) -> str:
     return valor if isinstance(valor, str) else str(valor)
 
 
-def _primeiro(origem: Mapping[str, Any], *nomes: str) -> str:
+def primeiro_campo(origem: Mapping[str, Any], *nomes: str) -> str:
     """Primeiro nome presente, testando também a inicial maiúscula.
 
     A API mistura `codigo` e `Codigo` entre endpoints, e mistura `descricao` com
-    `mensagem` entre o formato atual e o legado.
+    `mensagem` entre o formato atual e o legado. Público porque `client.py` lê os
+    campos de resposta com a mesma tolerância — `chaveAcesso` e `ChaveAcesso` já
+    foram vistos nos dois endpoints que a devolvem.
     """
     for nome in nomes:
         for variante in (nome, nome.capitalize(), nome.upper()):
@@ -121,9 +124,9 @@ def _mensagem_de(item: object) -> MensagemSefin | None:
     if not isinstance(item, Mapping):
         return None
     mensagem = MensagemSefin(
-        codigo=_primeiro(item, "codigo", "code"),
-        descricao=_primeiro(item, "descricao", "mensagem", "message", "motivo"),
-        complemento=_primeiro(item, "complemento", "detalhe", "parametros"),
+        codigo=primeiro_campo(item, "codigo", "code"),
+        descricao=primeiro_campo(item, "descricao", "mensagem", "message", "motivo"),
+        complemento=primeiro_campo(item, "complemento", "detalhe", "parametros"),
     )
     if not (mensagem.codigo or mensagem.descricao or mensagem.complemento):
         return None

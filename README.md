@@ -62,9 +62,10 @@ por_codigo("10101")            # -> 010101, com o zero que o Excel comeu
 por_codigo("01.01.01")         # -> o mesmo
 ```
 
-## Montar uma DPS
+## Emitir uma nota
 
-Em desenvolvimento na v0.2.0. A DPS já monta, valida e assina; o envio entra a seguir.
+Em desenvolvimento na v0.2.0, e o caminho completo já funciona: montar, validar,
+assinar, enviar, consultar e baixar o DANFSe.
 
 O leiaute chama o código do serviço de `dps.infDPS.serv.cServ.cTribNac`. Ninguém
 deveria precisar saber disso:
@@ -110,6 +111,52 @@ O que isso já poupa, tudo antes de gastar uma conexão:
   `cIntContrib` sem hífen, alíquota dentro do teto de um dígito do `pAliq`.
 - **Caracteres que o `TSString` recusa** — travessão e aspas curvas coladas de um
   editor de texto passam despercebidos até a recepção rejeitar.
+
+Com a DPS pronta, o cliente cuida do resto:
+
+```python
+from pathlib import Path
+
+from nfse_sefin import Ambiente, Certificate, NFSeClient
+from nfse_sefin.errors import MunicipioNaoAderente, RejeicaoNFSe
+
+cert = Certificate.from_pfx("empresa.pfx", password="senha")
+
+with NFSeClient(cert, ambiente=Ambiente.PRODUCAO_RESTRITA) as cliente:
+    if not cliente.consultar_convenio("3304557").aderido:   # passo zero
+        raise MunicipioNaoAderente("3304557")
+
+    try:
+        nota = cliente.emitir(dps)          # assina, comprime, envia
+    except RejeicaoNFSe as erro:
+        print(erro)                         # "E0014: ... já existe em uma NFS-e"
+        print(erro.caminhos_xml)            # ('NFSe/infNFSe/DPS/infDPS/serie',)
+        raise
+
+    pdf = cliente.baixar_danfse(nota.chave_acesso)
+    Path("nota.pdf").write_bytes(pdf)
+    Path("nota.xml").write_bytes(nota.xml)  # já descomprimido, pronto para arquivar
+```
+
+Três decisões que o cliente toma por você:
+
+- **O `tpAmb` é do cliente, não da DPS.** `emitir` sobrescreve o campo a partir do
+  `Ambiente` configurado, com aviso no log quando o valor era outro. Uma DPS montada
+  para produção restrita e enviada para produção seria emissão real marcada como
+  teste.
+- **`POST /nfse` nunca repete.** Escrita fiscal não é idempotente: repetir depois de
+  o servidor ter processado emite a mesma nota duas vezes. Quando a conexão cai sem
+  resposta, a exceção carrega o identificador da DPS e manda consultar em vez de
+  reenviar:
+
+  ```python
+  if cliente.dps_foi_processada(dps.identificador):
+      chave = cliente.chave_por_dps(dps.identificador)
+  ```
+- **Rejeição não é erro de transporte.** `E0014` vira `RejeicaoNFSe` com o texto
+  oficial da regra e o caminho XML do campo culpado; um 502 de proxy continua sendo
+  `TransporteError`. A diferença é o que dá para fazer a seguir — transporte às vezes
+  passa na próxima tentativa, rejeição devolve o mesmo erro sempre.
 
 ## Certificado
 

@@ -506,6 +506,7 @@ nfse_sefin/
                        TransporteError, RejeicaoNFSe, EventoRejeitado (idioma cStat, P12)
   convenio.py          preflight municipal contra {ADN}/parametrizacao/{codMun}/convenio
   doctor.py            CLI de diagnóstico; entry point `nfse-doctor`; --probe-assinatura
+  client.py            NFSeClient: emitir, consultar, /dps/{id}, danfse; dono do tpAmb
   facade/                                            dados puros, sem importar nfelib
     enums.py           os códigos do leiaute com nome: opSimpNac "3" -> ME_EPP
     documentos.py      DV de CPF/CNPJ, código IBGE, CEP, telefone, regras do TSString
@@ -816,8 +817,8 @@ Sem gates. O caminho está livre para código.
    | 9a | `perfis.py` + `signing.py` | **feito** em 2026-08-11 (`ba4c640`) |
    | 9b | `catalogos/rejeicoes.py` | **feito** em 2026-08-11 (`7fd40fe`) |
    | 9c | `facade/` + `adapters/nfelib.py` | **feito** em 2026-08-17 |
-   | 9d | `emitir` / `consultar` / `/dps/{id}` / `danfse` | **próximo** |
-   | 9e | `--probe-assinatura` | pendente, parcialmente travado no OQ12 |
+   | 9d | `emitir` / `consultar` / `/dps/{id}` / `danfse` | **feito** em 2026-08-17 |
+   | 9e | `--probe-assinatura` | **próximo**, parcialmente travado no OQ12 |
 
    **9c entregue.** A fachada monta, valida e assina uma DPS. A separação estrutural
    é verificada, não prometida: um teste importa `nfse_sefin.facade` num subprocesso
@@ -880,6 +881,64 @@ Sem gates. O caminho está livre para código.
    ciclo se resolvia por ordem de linha, o que é frágil demais para deixar. O
    `pyproject.toml` aponta para o arquivo novo; `release.yml` segue lendo
    `nfse_sefin.__version__` e continua correto.
+
+   **9d entregue.** `NFSeClient` costura o que já existia: emitir, consultar,
+   recuperar por identificador de DPS e baixar o DANFSe. `pip install nfse-sefin`
+   agora emite nota — falta só o `--probe-assinatura` para fechar v0.2.0.
+
+   Onze guardas de 9d passaram por mutação. As decisões que elas travam:
+
+   **`tpAmb` é do cliente.** `emitir` sobrescreve o campo a partir do `Ambiente`
+   configurado, sempre, com `WARNING` quando o valor divergia — e produz uma cópia,
+   sem tocar na DPS de quem chamou. Confiar no valor que veio significa emitir nota
+   real marcada como teste, ou tomar rejeição por divergência de ambiente.
+
+   **Rejeição não é erro de transporte.** O `Transporte` levanta `TransporteError`
+   para qualquer HTTP ≥ 400 porque naquele nível não dá para separar "o servidor
+   caiu" de "o servidor recusou o conteúdo". No cliente dá: a separação é por
+   **forma**, não por status — se as mensagens normalizadas trazem código `E####`,
+   é decisão de negócio e vira `RejeicaoNFSe`. Escolher pela forma e não pelo status
+   é o que sobrevive a P11.
+
+   **Falha ambígua tem caminho, e ele não é repetir.** Quando o `POST` morre sem
+   status, a nota pode ter sido gerada. A exceção carrega o identificador da DPS e
+   manda usar `dps_foi_processada` e `chave_por_dps`. O cliente **não** faz isso
+   sozinho: decidir entre reconsultar, alertar um humano ou seguir com outro número
+   é política do ERP, não da biblioteca.
+
+   **A chave de acesso circula em duas formas.** `TSChaveNFSe` é `[0-9]{50}`, mas o
+   `Id` da NFS-e tem 53 posições porque leva o literal `NFS` na frente — quem copia
+   do XML cola 53, quem copia de relatório cola 50. `normalizar_chave` aceita as
+   duas. O dígito verificador **não** é conferido: o algoritmo não está publicado em
+   nenhum documento de referência, e recusar chave válida por ter chutado o cálculo
+   seria pior que não conferir.
+
+   ### Uma guarda de 9d nasceu vazia, e o que isso ensinou
+
+   `_alertas_de` lê só o campo de alertas em vez de chamar `normalizar_mensagens` no
+   corpo inteiro. A justificativa escrita era que o caminho ingênuo produziria alerta
+   espúrio em toda emissão. **A mutação provou que não**: para a resposta de sucesso
+   observada, `normalizar_mensagens` devolve tupla vazia de qualquer jeito.
+
+   A guarda é certa, mas por um motivo mais estreito — o fallback legado só dispara
+   quando o corpo traz um campo como `motivo` ou `descricao` na raiz, o que P11 torna
+   questão de tempo. O teste passou a demonstrar exatamente esse caso, e o docstring
+   passou a dizer a verdade. Sem a mutação, ficaria no repositório uma asserção que
+   não asseverava nada e um comentário que explicava algo que não acontecia.
+
+   ### O teste de isolamento da fachada mudou de método
+
+   `__init__.py` passou a exportar `NFSeClient` — que é a API pública que este
+   documento especifica —, e com isso importar qualquer coisa do pacote carrega o
+   cliente, o adapter e a `nfelib`. A verificação por `sys.modules` num subprocesso
+   deixou de ser observável.
+
+   Ela foi substituída por duas, e o conjunto ficou mais forte que o original:
+
+   1. **Checagem estática de AST**: nenhum módulo do pacote importa `nfelib` exceto
+      `adapters/nfelib.py`. Pega até import que exista e nunca seja executado.
+   2. **Subprocesso com o `__init__` neutralizado**, importando `facade.dps` direto:
+      nenhuma cadeia de imports da fachada alcança `nfelib`.
 
 ## v0.1.0 — PUBLICADO em 2026-08-11
 

@@ -15,6 +15,7 @@ from nfse_sefin._version import __version__
 from nfse_sefin.ambientes import BASES, Ambiente, Bases, bases_de
 from nfse_sefin.catalogos.servicos import buscar_servico
 from nfse_sefin.cert import Certificate
+from nfse_sefin.client import NFSeClient, NotaFiscal
 from nfse_sefin.facade import (
     DPS,
     Endereco,
@@ -37,6 +38,8 @@ __all__ = [
     "Bases",
     "Certificate",
     "Endereco",
+    "NFSeClient",
+    "NotaFiscal",
     "OpcaoSimplesNacional",
     "Prestador",
     "RegimeApuracaoSN",

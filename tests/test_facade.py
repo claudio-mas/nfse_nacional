@@ -13,6 +13,7 @@ import subprocess
 import sys
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
@@ -76,17 +77,66 @@ def dps(**kwargs: object) -> DPS:
 # ------------------------------------------------ a fachada não conhece a nfelib
 
 
-def test_facade_nao_importa_nfelib() -> None:
+def _modulos_que_importam_nfelib() -> set[str]:
+    """Varre o AST de todo módulo do pacote atrás de `import nfelib`.
+
+    Distingue a dependência de terceiros (`nfelib`) do nosso próprio módulo
+    homônimo (`nfse_sefin.adapters.nfelib`), que qualquer um pode importar.
+    """
+    import ast
+
+    pacote = Path(__file__).resolve().parent.parent / "nfse_sefin"
+    culpados: set[str] = set()
+
+    for arquivo in pacote.rglob("*.py"):
+        arvore = ast.parse(arquivo.read_text(encoding="utf-8"), filename=str(arquivo))
+        for no in ast.walk(arvore):
+            alvos: list[str] = []
+            if isinstance(no, ast.Import):
+                alvos = [a.name for a in no.names]
+            elif isinstance(no, ast.ImportFrom) and no.level == 0 and no.module:
+                alvos = [no.module]
+            if any(a == "nfelib" or a.startswith("nfelib.") for a in alvos):
+                culpados.add(str(arquivo.relative_to(pacote)))
+
+    return culpados
+
+
+def test_so_o_adapter_importa_nfelib() -> None:
     """A regra estrutural do `DESIGN.md`, verificada em vez de prometida.
 
-    Roda em subprocesso porque a suíte inteira já importou `nfelib` por outros
-    caminhos — checar `sys.modules` neste processo não provaria nada.
+    Checagem estática do código-fonte, e não de `sys.modules` num subprocesso: desde
+    que `__init__.py` passou a exportar `NFSeClient`, importar qualquer coisa do
+    pacote carrega o cliente, que carrega o adapter, que carrega `nfelib`. A
+    propriedade em tempo de execução deixou de ser observável — a propriedade que
+    interessa, e que sustenta o desenho, é sobre onde o import aparece no fonte.
+
+    É também mais forte: pega um import que exista mas nunca seja executado.
+    """
+    assert _modulos_que_importam_nfelib() == {"adapters/nfelib.py"}
+
+
+def test_facade_nao_importa_nfelib_nem_indiretamente() -> None:
+    """Nenhum módulo de `facade/` alcança `nfelib` por nenhuma cadeia de imports.
+
+    Roda em subprocesso e importa `nfse_sefin.facade.dps` com o `__init__` do pacote
+    neutralizado, que é o que permite observar a cadeia real da fachada sem o
+    cliente no caminho.
     """
     codigo = (
-        "import sys; import nfse_sefin.facade; "
-        "assert 'nfelib' not in sys.modules, sorted(m for m in sys.modules if 'nfelib' in m)"
+        "import sys, importlib.util, pathlib\n"
+        "raiz = pathlib.Path(sys.argv[1])\n"
+        "sys.modules['nfse_sefin'] = type(sys)('nfse_sefin')\n"
+        "sys.modules['nfse_sefin'].__path__ = [str(raiz / 'nfse_sefin')]\n"
+        "import nfse_sefin.facade.dps\n"
+        "vazou = sorted(m for m in sys.modules if m == 'nfelib' or m.startswith('nfelib.'))\n"
+        "assert not vazou, vazou\n"
     )
-    resultado = subprocess.run([sys.executable, "-c", codigo], capture_output=True, text=True)
+    resultado = subprocess.run(
+        [sys.executable, "-c", codigo, str(Path(__file__).resolve().parent.parent)],
+        capture_output=True,
+        text=True,
+    )
     assert resultado.returncode == 0, resultado.stderr
 
 
