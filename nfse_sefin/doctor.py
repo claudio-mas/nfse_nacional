@@ -15,8 +15,10 @@ abriu.
 O código de saída é distinto por causa, para que script de implantação consiga
 decidir o que fazer sem parsear texto.
 
-`--probe-assinatura`, que descobre qual par de versão e algoritmo o servidor aceita,
-entra na v0.2.0, junto com `signing.py` e `perfis.py`.
+`--probe-assinatura` acrescenta a quinta pergunta, que é a única cuja resposta não está
+em documento nenhum: **qual par de versão e algoritmo este servidor aceita.** Ele manda
+uma DPS estragada de propósito, que é sempre recusada, e lê a resposta pela camada em que
+a recusa aconteceu — ver `probe.py`. Não gera nota, e recusa rodar em produção.
 """
 
 from __future__ import annotations
@@ -26,7 +28,7 @@ import getpass
 import os
 import ssl
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from enum import IntEnum
 from pathlib import Path
 from typing import TextIO
@@ -35,8 +37,15 @@ from nfse_sefin import __version__
 from nfse_sefin.ambientes import Ambiente, bases_de
 from nfse_sefin.catalogos import buscar_servico
 from nfse_sefin.cert import Certificate
+from nfse_sefin.client import NFSeClient
 from nfse_sefin.convenio import consultar_convenio, valida_codigo_ibge
-from nfse_sefin.errors import CertificadoIlegivelError, TransporteError
+from nfse_sefin.errors import (
+    CertificadoIlegivelError,
+    DadosInvalidosError,
+    ProbeEmProducaoError,
+    TransporteError,
+)
+from nfse_sefin.probe import Veredito, recusar_producao
 from nfse_sefin.transport import Transporte
 
 __all__ = ["CodigoSaida", "main"]
@@ -57,6 +66,8 @@ class CodigoSaida(IntEnum):
     MTLS_FALHOU = 5
     MUNICIPIO_NAO_ADERENTE = 6
     ARGUMENTO_INVALIDO = 7
+    PROBE_INDETERMINADO = 8
+    PROBE_GEROU_NOTA = 9
 
 
 _OK = "OK  "
@@ -94,6 +105,56 @@ def _senha_do_pfx(argumentos: argparse.Namespace) -> str:
     return getpass.getpass("Senha do certificado: ")
 
 
+def _rodar_probe(
+    argumentos: argparse.Namespace,
+    certificado: Certificate,
+    ambiente: Ambiente,
+    transporte: Transporte,
+    linha: Callable[[str, str], None],
+    saida: TextIO,
+) -> CodigoSaida:
+    """Pergunta ao servidor qual perfil ele aceita e relata. Não emite nota.
+
+    Convênio **não** é pré-requisito: o probe classifica por camada de recusa, e
+    município não aderente responde com código de negócio — que já é a resposta.
+    """
+    with NFSeClient(certificado, ambiente=ambiente, transporte=transporte) as cliente:
+        try:
+            resultado = cliente.probe_assinatura(argumentos.municipio)
+        except DadosInvalidosError as exc:
+            # O probe parou antes de mandar qualquer coisa: certificado que não é
+            # e-CNPJ, ou o estrago deliberado que não pôde ser aplicado.
+            linha(_FALHA, "o probe não pôde ser montado")
+            print(f"\n  {exc}", file=saida)
+            return CodigoSaida.ARGUMENTO_INVALIDO
+        except TransporteError as exc:
+            linha(_FALHA, f"o probe não chegou a uma resposta: {exc}")
+            return CodigoSaida.ERRO_INESPERADO
+
+    if resultado.veredito is Veredito.PERFIL_ENCONTRADO:
+        assert resultado.perfil is not None  # garantido pelo veredito
+        linha(_OK, f"perfil de assinatura aceito: {resultado.perfil.nome}")
+        print(f"\n  {resultado.motivo}", file=saida)
+        print(
+            "\n  No código:"
+            "\n    from nfse_sefin import NFSeClient, por_nome"
+            f"\n    cliente = NFSeClient(cert, perfil=por_nome({resultado.perfil.nome!r}))",
+            file=saida,
+        )
+        return CodigoSaida.SUCESSO
+
+    if resultado.veredito is Veredito.NOTA_GERADA:
+        linha(_FALHA, "o probe gerou uma NFS-e — não deveria")
+        print(f"\n  {resultado.motivo}", file=saida)
+        if resultado.chave_acesso:
+            print(f"\n  Chave a cancelar: {resultado.chave_acesso}", file=saida)
+        return CodigoSaida.PROBE_GEROU_NOTA
+
+    linha(_AVISO, "o probe não conseguiu decidir o perfil")
+    print(f"\n  {resultado.motivo}", file=saida)
+    return CodigoSaida.PROBE_INDETERMINADO
+
+
 def _diagnosticar(argumentos: argparse.Namespace, saida: TextIO) -> CodigoSaida:
     def linha(marca: str, texto: str) -> None:
         print(f"  [{marca}] {texto}", file=saida)
@@ -106,6 +167,15 @@ def _diagnosticar(argumentos: argparse.Namespace, saida: TextIO) -> CodigoSaida:
 
     print(f"nfse-doctor {__version__} — ambiente: {ambiente.value}", file=saida)
     print(file=saida)
+
+    # Antes de tudo, inclusive de abrir o certificado: o probe manda uma DPS de verdade,
+    # e recusar cedo é o que garante que nada saia da máquina por engano.
+    if argumentos.probe_assinatura:
+        try:
+            recusar_producao(ambiente)
+        except ProbeEmProducaoError as exc:
+            linha(_FALHA, str(exc))
+            return CodigoSaida.ARGUMENTO_INVALIDO
 
     # ------------------------------------------------- 1. o arquivo abre?
     caminho = Path(argumentos.pfx)
@@ -176,12 +246,20 @@ def _diagnosticar(argumentos: argparse.Namespace, saida: TextIO) -> CodigoSaida:
                 "\n  a emissão continua no sistema dele, não aqui.",
                 file=saida,
             )
+        else:
+            linha(_OK, f"município {argumentos.municipio} aderiu ao Sistema Nacional")
+            linha(_OK, f"rota de convênio que respondeu: {convenio.caminho}")
+
+        # ------------------------------------------- 5. qual assinatura o servidor aceita?
+        if argumentos.probe_assinatura:
+            codigo = _rodar_probe(argumentos, certificado, ambiente, transporte, linha, saida)
+            if codigo is not CodigoSaida.SUCESSO:
+                return codigo
+
+        if not convenio.aderido:
             return CodigoSaida.MUNICIPIO_NAO_ADERENTE
 
-        linha(_OK, f"município {argumentos.municipio} aderiu ao Sistema Nacional")
-        linha(_OK, f"rota de convênio que respondeu: {convenio.caminho}")
-
-    # ------------------------------------------------------ 5. bônus: o serviço
+    # ------------------------------------------------------ 6. bônus: o serviço
     if argumentos.servico:
         achados = buscar_servico(argumentos.servico)
         if not achados:
@@ -219,6 +297,13 @@ def _analisador() -> argparse.ArgumentParser:
         "--servico",
         default=None,
         help="descrição do serviço, para descobrir o cTribNac correspondente",
+    )
+    analisador.add_argument(
+        "--probe-assinatura",
+        action="store_true",
+        help="descobre qual perfil de assinatura o servidor aceita. Manda uma DPS "
+        "estragada de propósito, que é sempre recusada — não gera nota. Só em "
+        "produção restrita.",
     )
     analisador.add_argument("--version", action="version", version=f"nfse-doctor {__version__}")
     return analisador

@@ -65,6 +65,17 @@ from nfse_sefin.errors import (
 )
 from nfse_sefin.facade.dps import DPS
 from nfse_sefin.perfis import PERFIL_PADRAO, Perfil
+from nfse_sefin.probe import (
+    PERFIL_DO_PROBE,
+    SERIE_PROBE,
+    ResultadoProbe,
+    Veredito,
+    classificar,
+    cnpj_do_certificado,
+    com_estrago,
+    dps_do_probe,
+    recusar_producao,
+)
 from nfse_sefin.signing import assinar
 from nfse_sefin.transport import (
     Transporte,
@@ -245,6 +256,58 @@ class NFSeClient:
                 url=exc.url,
             )
         return exc
+
+    # --------------------------------------------------------------- probe
+
+    def probe_assinatura(self, codigo_municipio: str) -> ResultadoProbe:
+        """Descobre qual perfil de assinatura este servidor aceita, **sem emitir nota**.
+
+        Manda uma requisição só, com o par SHA-256, numa DPS estragada de propósito para
+        que o ramo "a assinatura passou" também termine em rejeição. O desenho inteiro e
+        o porquê de cada peça estão em `probe.py`.
+
+        O `perfil` configurado neste cliente é ignorado: o probe usa o seu, senão não
+        pergunta nada.
+
+        Args:
+            codigo_municipio: IBGE de 7 dígitos. Não precisa ser conveniado — município
+                não aderente devolve código de negócio, que já responde a pergunta.
+
+        Raises:
+            ProbeEmProducaoError: o cliente está apontado para produção.
+            DadosInvalidosError: o certificado não é um e-CNPJ, ou o estrago não pôde
+                ser aplicado — nos dois casos o probe para antes de mandar qualquer coisa.
+            TransporteError: a requisição não chegou a uma resposta.
+        """
+        recusar_producao(self.ambiente)
+
+        dps = dps_do_probe(cnpj_do_certificado(self._certificado), codigo_municipio, self.ambiente)
+        xml = assinar(
+            com_estrago(serializar(dps, PERFIL_DO_PROBE)), self._certificado, PERFIL_DO_PROBE
+        )
+
+        try:
+            corpo = self._transporte.post_json(
+                f"{self.bases.sefin}/nfse", {CAMPO_DPS: gzip_b64(xml)}
+            )
+        except TransporteError as exc:
+            return classificar(tuple(m.codigo for m in exc.mensagens if m.codigo))
+
+        # Chegar aqui significa que o estrago não segurou. É defeito do probe, não
+        # resultado — e a nota existe, então o que resta é dizer qual é.
+        chave = _chave_do_corpo(corpo)
+        return ResultadoProbe(
+            veredito=Veredito.NOTA_GERADA,
+            perfil=None,
+            codigos=(),
+            motivo=(
+                f"O servidor ACEITOU a DPS do probe, que deveria ter sido recusada por "
+                f"E0713. Uma NFS-e de teste foi gerada na série {SERIE_PROBE} e precisa "
+                "ser cancelada à mão no Emissor Web — esta versão ainda não registra "
+                "eventos. Reporte o caso: o estrago deliberado deixou de funcionar."
+            ),
+            chave_acesso=normalizar_chave(chave) if chave else "",
+        )
 
     # ------------------------------------------------------------ consulta
 

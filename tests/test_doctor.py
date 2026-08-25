@@ -384,3 +384,151 @@ def test_transporte_e_fechado_no_caminho_feliz(
     _rodar("--pfx", str(caminho), "--municipio", MUNICIPIO, "--senha", pfx_valido.senha)
 
     assert len(fechados) == 1
+
+
+# ------------------------------------------------------ probe de assinatura
+
+
+URL_EMITIR = f"{BASES.sefin}/nfse"
+
+
+def _erro_de_rejeicao(codigo: str) -> dict[str, Any]:
+    return {"erro": [{"codigo": codigo, "descricao": "…"}]}
+
+
+def test_probe_em_producao_para_antes_de_abrir_o_certificado(
+    pfx_valido: PfxGerado, tmp_path: Path, httpx_mock: HTTPXMock
+) -> None:
+    """Recusa dura, sem flag de override, e antes de qualquer coisa sair da máquina.
+
+    Sem `sem_contexto_tls` de propósito: se a recusa não viesse primeiro, o comando
+    chegaria a montar contexto TLS e a mandar uma DPS de verdade para produção.
+    """
+    caminho = _pfx_em_disco(pfx_valido, tmp_path)
+
+    codigo, texto = _rodar(
+        "--pfx",
+        str(caminho),
+        "--municipio",
+        MUNICIPIO,
+        "--senha",
+        pfx_valido.senha,
+        "--ambiente",
+        Ambiente.PRODUCAO.value,
+        "--probe-assinatura",
+    )
+
+    assert codigo == CodigoSaida.ARGUMENTO_INVALIDO
+    assert "não roda em produção" in texto
+    assert httpx_mock.get_requests() == []
+
+
+def test_probe_relata_o_perfil_aceito(
+    pfx_valido: PfxGerado, tmp_path: Path, sem_contexto_tls: None, httpx_mock: HTTPXMock
+) -> None:
+    caminho = _pfx_em_disco(pfx_valido, tmp_path)
+    httpx_mock.add_response(method="GET", url=URL_CONVENIO, json={})
+    httpx_mock.add_response(
+        method="POST", url=URL_EMITIR, status_code=400, json=_erro_de_rejeicao("E1235")
+    )
+
+    codigo, texto = _rodar(
+        "--pfx",
+        str(caminho),
+        "--municipio",
+        MUNICIPIO,
+        "--senha",
+        pfx_valido.senha,
+        "--probe-assinatura",
+    )
+
+    assert codigo == CodigoSaida.SUCESSO
+    assert "perfil de assinatura aceito: 1.00+SHA1" in texto
+    assert "E1235" in texto
+
+
+def test_probe_roda_mesmo_com_municipio_nao_aderente(
+    pfx_valido: PfxGerado, tmp_path: Path, sem_contexto_tls: None, httpx_mock: HTTPXMock
+) -> None:
+    """Convênio não é pré-requisito do probe — mas continua sendo diagnóstico.
+
+    O comando responde as duas coisas: qual perfil serve, e que o município não recebe
+    DPS. O código de saída fica com a falha, porque é ela que impede emitir.
+    """
+    caminho = _pfx_em_disco(pfx_valido, tmp_path)
+    httpx_mock.add_response(method="GET", url=URL_CONVENIO, status_code=404)
+    httpx_mock.add_response(method="GET", url=URL_MANUAL, status_code=404)
+    httpx_mock.add_response(
+        method="POST", url=URL_EMITIR, status_code=400, json=_erro_de_rejeicao("E0713")
+    )
+
+    codigo, texto = _rodar(
+        "--pfx",
+        str(caminho),
+        "--municipio",
+        MUNICIPIO,
+        "--senha",
+        pfx_valido.senha,
+        "--probe-assinatura",
+    )
+
+    assert codigo == CodigoSaida.MUNICIPIO_NAO_ADERENTE
+    assert "não aderiu" in texto
+    assert "perfil de assinatura aceito: 1.01+SHA256" in texto
+
+
+def test_probe_que_gerou_nota_tem_codigo_proprio(
+    pfx_valido: PfxGerado, tmp_path: Path, sem_contexto_tls: None, httpx_mock: HTTPXMock
+) -> None:
+    """A contingência precisa ser distinguível por script, e citar a chave."""
+    caminho = _pfx_em_disco(pfx_valido, tmp_path)
+    httpx_mock.add_response(method="GET", url=URL_CONVENIO, json={})
+    httpx_mock.add_response(method="POST", url=URL_EMITIR, json={"chaveAcesso": "1" * 50})
+
+    codigo, texto = _rodar(
+        "--pfx",
+        str(caminho),
+        "--municipio",
+        MUNICIPIO,
+        "--senha",
+        pfx_valido.senha,
+        "--probe-assinatura",
+    )
+
+    assert codigo == CodigoSaida.PROBE_GEROU_NOTA
+    assert "Chave a cancelar: " + "1" * 50 in texto
+
+
+def test_probe_indeterminado_nao_finge_resposta(
+    pfx_valido: PfxGerado, tmp_path: Path, sem_contexto_tls: None, httpx_mock: HTTPXMock
+) -> None:
+    caminho = _pfx_em_disco(pfx_valido, tmp_path)
+    httpx_mock.add_response(method="GET", url=URL_CONVENIO, json={})
+    httpx_mock.add_response(
+        method="POST", url=URL_EMITIR, status_code=400, json=_erro_de_rejeicao("E1228")
+    )
+
+    codigo, texto = _rodar(
+        "--pfx",
+        str(caminho),
+        "--municipio",
+        MUNICIPIO,
+        "--senha",
+        pfx_valido.senha,
+        "--probe-assinatura",
+    )
+
+    assert codigo == CodigoSaida.PROBE_INDETERMINADO
+    assert "não conseguiu decidir" in texto
+
+
+def test_sem_a_flag_o_doctor_nao_manda_dps(
+    pfx_valido: PfxGerado, tmp_path: Path, sem_contexto_tls: None, httpx_mock: HTTPXMock
+) -> None:
+    """O comportamento antigo continua read-only. O probe é opt-in."""
+    caminho = _pfx_em_disco(pfx_valido, tmp_path)
+    httpx_mock.add_response(method="GET", url=URL_CONVENIO, json={})
+
+    _rodar("--pfx", str(caminho), "--municipio", MUNICIPIO, "--senha", pfx_valido.senha)
+
+    assert [r.method for r in httpx_mock.get_requests()] == ["GET"]
