@@ -419,7 +419,7 @@ def test_probe_em_producao_para_antes_de_abrir_o_certificado(
     )
 
     assert codigo == CodigoSaida.ARGUMENTO_INVALIDO
-    assert "não roda em produção" in texto
+    assert "só roda em producao_restrita" in texto
     assert httpx_mock.get_requests() == []
 
 
@@ -532,3 +532,95 @@ def test_sem_a_flag_o_doctor_nao_manda_dps(
     _rodar("--pfx", str(caminho), "--municipio", MUNICIPIO, "--senha", pfx_valido.senha)
 
     assert [r.method for r in httpx_mock.get_requests()] == ["GET"]
+
+
+def test_perfil_diferente_do_padrao_tem_codigo_proprio(
+    pfx_valido: PfxGerado, tmp_path: Path, sem_contexto_tls: None, httpx_mock: HTTPXMock
+) -> None:
+    """Probe respondeu 1.01, mas `NFSeClient(cert)` usa 1.00 por padrão.
+
+    Sair `0` faria um script de implantação registrar tudo certo e só descobrir na
+    primeira emissão que o perfil default não serve neste servidor. O código de saída é o
+    único canal legível por máquina, e é para isso que `CodigoSaida` existe.
+    """
+    caminho = _pfx_em_disco(pfx_valido, tmp_path)
+    httpx_mock.add_response(method="GET", url=URL_CONVENIO, json={})
+    httpx_mock.add_response(
+        method="POST", url=URL_EMITIR, status_code=400, json=_erro_de_rejeicao("E0713")
+    )
+
+    codigo, texto = _rodar(
+        "--pfx",
+        str(caminho),
+        "--municipio",
+        MUNICIPIO,
+        "--senha",
+        pfx_valido.senha,
+        "--probe-assinatura",
+    )
+
+    assert codigo == CodigoSaida.PROBE_PERFIL_NAO_PADRAO
+    assert "NÃO é o perfil padrão" in texto
+    assert "por_nome('1.01+SHA256')" in texto
+    assert "Tudo pronto para emitir" not in texto
+
+
+def test_perfil_igual_ao_padrao_sai_zero(
+    pfx_valido: PfxGerado, tmp_path: Path, sem_contexto_tls: None, httpx_mock: HTTPXMock
+) -> None:
+    """O outro lado: quando o padrão serve, não há ação pendente."""
+    caminho = _pfx_em_disco(pfx_valido, tmp_path)
+    httpx_mock.add_response(method="GET", url=URL_CONVENIO, json={})
+    httpx_mock.add_response(
+        method="POST", url=URL_EMITIR, status_code=400, json=_erro_de_rejeicao("E1235")
+    )
+
+    codigo, texto = _rodar(
+        "--pfx",
+        str(caminho),
+        "--municipio",
+        MUNICIPIO,
+        "--senha",
+        pfx_valido.senha,
+        "--probe-assinatura",
+    )
+
+    assert codigo == CodigoSaida.SUCESSO
+    assert "Tudo pronto para emitir" in texto
+
+
+def test_erro_irmao_nao_vira_traceback(
+    pfx_valido: PfxGerado,
+    tmp_path: Path,
+    sem_contexto_tls: None,
+    httpx_mock: HTTPXMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`AssinaturaError` não desce de `TransporteError` nem de `DadosInvalidosError`.
+
+    Sem a cláusula que captura `NFSeError`, ela sobe como traceback de Python num comando
+    cujo contrato inteiro é linha rotulada e código de saída distinto.
+    """
+    from nfse_sefin import client as modulo_cliente
+    from nfse_sefin.signing import AssinaturaError
+
+    def explode(*_: Any, **__: Any) -> bytes:
+        raise AssinaturaError("<infDPS> não tem atributo `Id`")
+
+    monkeypatch.setattr(modulo_cliente, "assinar", explode)
+    caminho = _pfx_em_disco(pfx_valido, tmp_path)
+    httpx_mock.add_response(method="GET", url=URL_CONVENIO, json={})
+
+    codigo, texto = _rodar(
+        "--pfx",
+        str(caminho),
+        "--municipio",
+        MUNICIPIO,
+        "--senha",
+        pfx_valido.senha,
+        "--probe-assinatura",
+    )
+
+    assert codigo == CodigoSaida.ERRO_INESPERADO
+    assert "AssinaturaError" in texto
+    assert "Id" in texto

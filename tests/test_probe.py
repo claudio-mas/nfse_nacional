@@ -15,7 +15,8 @@ resposta é por camada e não por código:
 
 from __future__ import annotations
 
-from typing import Any
+from enum import Enum
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -25,9 +26,10 @@ from pytest_httpx import HTTPXMock
 from nfse_sefin.ambientes import Ambiente, bases_de
 from nfse_sefin.cert import Certificate
 from nfse_sefin.client import CAMPO_DPS, NFSeClient
-from nfse_sefin.errors import DadosInvalidosError, ProbeEmProducaoError
+from nfse_sefin.errors import DadosInvalidosError, ProbeEmProducaoError, TransporteError
 from nfse_sefin.perfis import PERFIL_100, PERFIL_101
 from nfse_sefin.probe import (
+    FUSO_DO_PROBE,
     PERFIL_DO_PROBE,
     SERIE_PROBE,
     ResultadoProbe,
@@ -82,12 +84,51 @@ def _erro(*codigos: str) -> dict[str, Any]:
 
 
 def test_producao_e_recusada() -> None:
-    with pytest.raises(ProbeEmProducaoError, match="não roda em produção"):
+    with pytest.raises(ProbeEmProducaoError, match="só roda em"):
         recusar_producao(Ambiente.PRODUCAO)
 
 
 def test_producao_restrita_passa() -> None:
     recusar_producao(Ambiente.PRODUCAO_RESTRITA)
+
+
+def test_so_producao_restrita_passa_em_toda_a_enum() -> None:
+    """Varre a enum inteira: exatamente um membro passa."""
+    liberados = []
+    for ambiente in Ambiente:
+        try:
+            recusar_producao(ambiente)
+        except ProbeEmProducaoError:
+            continue
+        liberados.append(ambiente)
+
+    assert liberados == [Ambiente.PRODUCAO_RESTRITA]
+
+
+def test_ambiente_novo_e_recusado_por_padrao() -> None:
+    """A guarda é lista de **permissão**, e é isto que prova a diferença.
+
+    `Ambiente` tem dois membros hoje, então varrer a enum não separa `is not
+    PRODUCAO_RESTRITA` de `is PRODUCAO` — as duas formas concordam em tudo que existe.
+    Foi o teste de mutação que mostrou: trocar uma pela outra deixava a suíte verde.
+
+    O que separa é um ambiente que ainda não existe. `Ambiente` é API pública e
+    `ambientes.py` já carrega quatro URLs base por ambiente; um terceiro membro é adição
+    plausível, e sob a negação ele passaria em silêncio — numa guarda cujo modo de falha
+    é emitir documento fiscal real.
+
+    O substituto é uma enum de verdade, e não um `object()`, porque a mensagem de erro
+    lê `.value`: um dublê sem esse atributo faria a guarda levantar `AttributeError` e o
+    teste passaria pelo motivo errado.
+    """
+
+    class AmbienteFuturo(str, Enum):
+        HOMOLOGACAO = "homologacao"
+
+    futuro = cast(Ambiente, AmbienteFuturo.HOMOLOGACAO)
+
+    with pytest.raises(ProbeEmProducaoError, match="homologacao"):
+        recusar_producao(futuro)
 
 
 def test_probe_em_producao_nao_manda_requisicao(
@@ -133,6 +174,22 @@ def test_dps_do_probe_usa_a_serie_reservada() -> None:
     assert dps.ambiente is Ambiente.PRODUCAO_RESTRITA
 
 
+def test_dps_do_probe_nao_depende_do_fuso_da_maquina() -> None:
+    """`TSDateTimeUTC` só aceita fuso em horas inteiras.
+
+    Num host em Asia/Kolkata (+05:30) ou Australia/Adelaide (+09:30),
+    `datetime.now().astimezone()` produz meia hora e a fachada recusa a DPS — o probe
+    morreria por causa do relógio da máquina, num diagnóstico que não tem nada a ver com
+    isso. O documento é descartado de qualquer jeito, então o fuso é fixo.
+    """
+    dps = dps_do_probe(CNPJ_DO_PFX, MUNICIPIO, Ambiente.PRODUCAO_RESTRITA)
+
+    deslocamento = dps.emitido_em.utcoffset()
+    assert deslocamento is not None
+    assert deslocamento.total_seconds() % 3600 == 0
+    assert dps.emitido_em.tzinfo is FUSO_DO_PROBE
+
+
 def test_dps_do_probe_nasce_valida() -> None:
     """A fachada aceita a DPS do probe — o único defeito dela é o que `com_estrago` põe.
 
@@ -168,12 +225,45 @@ def test_com_estrago_recusa_xml_sem_op_simp_nac() -> None:
 # ------------------------------------------------------------ classificação
 
 
-@pytest.mark.parametrize("codigo", ["E1235", "E0714", "E0717", "E0718"])
+@pytest.mark.parametrize("codigo", ["E1235", "E0714"])
 def test_recusa_de_assinatura_aponta_o_perfil_100(codigo: str) -> None:
     resultado = classificar((codigo,))
 
     assert resultado.veredito is Veredito.PERFIL_ENCONTRADO
     assert resultado.perfil is PERFIL_100
+
+
+@pytest.mark.parametrize("codigo", ["E0715", "E0716", "E0717", "E0718"])
+def test_defeito_no_nosso_certificado_nao_vira_recomendacao(codigo: str) -> None:
+    """Recusa que fala do nosso certificado ou da nossa assinatura não responde nada.
+
+    E0717 ("a assinatura é obrigatória") é o servidor não achando `Signature` nenhuma —
+    defeito de envelope, da mesma classe de E1228. E0718 ("deve ser feita com o
+    certificado do emitente") é o CNPJ que assinou não bater com o que emite. Antes de
+    2026-08-25 os dois estavam em `CODIGOS_QUE_RECUSAM_O_PERFIL` e viravam um confiante
+    "use 1.00+SHA1" — transformando bug nosso em configuração permanente do usuário.
+    """
+    resultado = classificar((codigo,))
+
+    assert resultado.veredito is Veredito.INDETERMINADO
+    assert resultado.perfil is None
+    assert "certificado" in resultado.motivo
+
+
+def test_versao_recusada_e_meia_resposta_e_diz_isso() -> None:
+    """E0001 separa os dois eixos que `Perfil` amarra, e o probe não escolhe por conta.
+
+    `Perfil` carrega versão de leiaute **e** par de hash. E0001 ("o prazo de aceitação da
+    versão do leiaute da DPS expirou") chega pela camada de negócio, então pela regra
+    geral significaria "a assinatura passou, use 1.01" — recomendando justamente a versão
+    que o servidor acabou de recusar.
+    """
+    resultado = classificar(("E0001",))
+
+    assert resultado.veredito is Veredito.INDETERMINADO
+    assert resultado.perfil is None
+    assert "1.01" in resultado.motivo
+    assert "SHA-256" in resultado.motivo or "sha256" in resultado.motivo
 
 
 @pytest.mark.parametrize("codigo", ["E0713", "E1301", "E0014", "E1260", "E1297"])
@@ -210,6 +300,20 @@ def test_outra_falha_de_recepcao_e_indeterminada(codigo: str) -> None:
 
 def test_sem_codigo_nenhum_e_indeterminado() -> None:
     assert classificar(()).veredito is Veredito.INDETERMINADO
+
+
+@pytest.mark.parametrize("codigo", ["401", "503", "ERRO", "E123", "E12345"])
+def test_codigo_fora_da_forma_do_anexo_nao_responde_perfil(codigo: str) -> None:
+    """Um `401` de proxy chega pelo mesmo campo `codigo` que um `E####`.
+
+    Sem o filtro de forma, ele cairia no ramo "chegou à regra de negócio" e o probe
+    recomendaria um perfil apoiado num erro de rede. `client.py` mantém a mesma
+    disciplina com `_CODIGO_DE_REJEICAO` para separar rejeição de falha HTTP.
+    """
+    resultado = classificar((codigo,))
+
+    assert resultado.veredito is Veredito.INDETERMINADO
+    assert resultado.perfil is None
 
 
 def test_recusa_de_assinatura_vence_codigo_de_negocio_junto() -> None:
@@ -304,6 +408,60 @@ def test_probe_aceito_e_defeito_e_devolve_a_chave(
     assert resultado.perfil is None
     assert resultado.chave_acesso == chave
     assert "cancelada à mão" in resultado.motivo
+
+
+def test_falha_sem_resposta_nao_vira_veredito(
+    certificado: Certificate, httpx_mock: HTTPXMock
+) -> None:
+    """Conexão que morre sem status não é "o servidor recusou sem código".
+
+    A DPS pode ter sido processada. Classificar aqui esconderia a causa real (rede,
+    timeout, mTLS) **e** o fato de que pode existir uma nota — e o probe devolveria
+    INDETERMINADO como se o servidor tivesse respondido alguma coisa.
+    """
+    httpx_mock.add_exception(httpx.ReadTimeout("estourou"), url=URL_EMITIR, method="POST")
+    cliente = _cliente(certificado)
+
+    with pytest.raises(TransporteError) as capturado:
+        cliente.probe_assinatura(MUNICIPIO)
+
+    erro = capturado.value
+    assert erro.status_code is None
+    assert "NÃO reenvie" in str(erro)
+    assert "dps_foi_processada" in str(erro)
+
+
+def test_nota_gerada_com_chave_irreconhecivel_ainda_reporta(
+    certificado: Certificate, httpx_mock: HTTPXMock
+) -> None:
+    """Normalizar a chave aqui trocaria "a nota é esta" por uma exceção.
+
+    E a exceção seria `DadosInvalidosError`, que o `doctor` reporta como "o probe não
+    pôde ser montado" — dizendo que nada foi enviado enquanto um documento fiscal existe
+    e ninguém sabe o número dele.
+    """
+    httpx_mock.add_response(url=URL_EMITIR, method="POST", json={"chaveAcesso": "123-abc"})
+    cliente = _cliente(certificado)
+
+    resultado = cliente.probe_assinatura(MUNICIPIO)
+
+    assert resultado.veredito is Veredito.NOTA_GERADA
+    assert resultado.chave_acesso == "123-abc"
+
+
+def test_nota_gerada_sem_chave_devolve_o_id_da_dps(
+    certificado: Certificate, httpx_mock: HTTPXMock
+) -> None:
+    """Sem chave no corpo, o identificador da DPS é o que ainda acha a nota."""
+    httpx_mock.add_response(url=URL_EMITIR, method="POST", json={"campoNovo": "…"})
+    cliente = _cliente(certificado)
+
+    resultado = cliente.probe_assinatura(MUNICIPIO)
+
+    assert resultado.veredito is Veredito.NOTA_GERADA
+    assert resultado.chave_acesso == ""
+    assert resultado.id_dps.startswith("DPS")
+    assert SERIE_PROBE.zfill(5) in resultado.id_dps
 
 
 def test_resultado_se_descreve_pelo_motivo() -> None:

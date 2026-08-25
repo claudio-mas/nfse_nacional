@@ -937,6 +937,56 @@ Sem gates. O caminho está livre para código.
    e a guarda continua certa por outro motivo. O padrão vale registrar: **a mutação não testa
    só o código, testa o comentário.**
 
+   ### O que a revisão de código corrigiu, no mesmo dia
+
+   A primeira versão de 9e passou na suíte e mesmo assim respondia errado em quatro
+   cenários. Todos têm a mesma forma: **o probe tratava como resposta o que era defeito
+   nosso ou pergunta diferente.** É o modo de falha mais caro possível para esta feature,
+   porque o usuário grava a configuração errada e acredita nela.
+
+   **`Perfil` amarra dois eixos, e o probe só mede um.** `versao` vai no atributo da DPS
+   junto com o par de hash. Um servidor que recuse `versao="1.01"` por prazo expirado
+   responde E0001 — código de negócio —, e pela regra "negócio significa que a assinatura
+   passou" o probe recomendava `PERFIL_101`, ou seja, exatamente a versão que o servidor
+   acabou de recusar. Agora E0001 tem tratamento próprio e devolve as duas metades em
+   separado: a assinatura passou, a versão não serve, e nenhum dos dois perfis de fábrica
+   é a resposta — o que parece servir é 1.00 com SHA-256, que não é perfil pronto.
+
+   **E0717 e E0718 saíram do conjunto de recusa.** E0717 é "não achei assinatura nenhuma"
+   e E0718 é "quem assinou não é o emitente" — os dois são bug nosso, de envelope ou de
+   `cnpj_do_certificado`, da mesma classe do E1228 que o módulo já mandava para
+   INDETERMINADO. Mantê-los ali transformava defeito da biblioteca em recomendação
+   confiante. E0715 e E0716 entraram no mesmo balde pelo mesmo motivo.
+
+   **Código sem a forma `E####` não é rejeição.** Um `"401"` de proxy ou `"503"` de gateway
+   chegam pelo mesmo campo `codigo` e caíam no ramo "chegou à regra de negócio". O
+   `client.py` já mantinha `_CODIGO_DE_REJEICAO` para exatamente essa separação; o probe
+   não usava.
+
+   **Falha ambígua não é veredito.** `POST` que morre sem status podia ter gerado nota, e
+   o probe devolvia INDETERMINADO "o servidor recusou sem código" — escondendo a causa
+   real e o fato de que um documento fiscal pode existir. Agora segue o mesmo caminho de
+   `emitir`: exceção com o identificador da DPS e a instrução de não reenviar.
+
+   Mais três de menor porte, na mesma linha de falhar fechado: a recusa de produção virou
+   lista de **permissão** (`is not PRODUCAO_RESTRITA`), porque `Ambiente` é API pública e
+   um terceiro membro passaria em silêncio pela negação; a chave no ramo de contingência
+   sai crua, porque `normalizar_chave` levantando ali trocaria "a nota é esta" por "o probe
+   não pôde ser montado"; e a DPS do probe usa fuso fixo `-03:00`, porque
+   `datetime.now().astimezone()` num host em `+05:30` produz meia hora e a fachada recusa.
+
+   Oito mutações novas, oito matam. A do ambiente precisou de um teste que a suíte não
+   conseguia escrever antes: com dois membros na enum, lista de permissão e lista de
+   negação concordam em tudo que existe, então a mutação passava verde. O teste que separa
+   as duas usa uma enum-substituta representando o membro futuro — e ela precisa ser enum
+   de verdade, não `object()`, senão a guarda levanta `AttributeError` ao formatar a
+   mensagem e o teste passa pelo motivo errado.
+
+   O `doctor` ganhou `PROBE_PERFIL_NAO_PADRAO` (10). Perfil descoberto diferente do padrão
+   da biblioteca não é falha, mas também não é `0`: sair `0` faria um script de implantação
+   registrar tudo certo e só descobrir na primeira emissão que `NFSeClient(cert)` usa o
+   perfil errado para aquele servidor.
+
    **9c entregue.** A fachada monta, valida e assina uma DPS. A separação estrutural
    é verificada, não prometida: um teste importa `nfse_sefin.facade` num subprocesso
    e falha se `nfelib` aparecer em `sys.modules`.

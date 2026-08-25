@@ -10,7 +10,7 @@ A pergunta original supunha que descobrir o perfil exige uma DPS aceita — que 
 útil é o `200`. Não é. Duas coisas já sabidas, postas lado a lado:
 
 1. A forma estrita de assinatura da 1.00 valida sob **os dois** schemas; só o par de hash
-   é irreconciliável. Então o probe varia um parâmetro só.
+   é irreconciliável.
 2. `Schemas/1.00/xmldsig-core-schema.xsd` traz `fixed="...rsa-sha1"` e `fixed="...sha1"`.
    Uma assinatura SHA-256 ali não é assinatura *inválida* — é **falha de esquema**, e
    falha de esquema é E1235, regra de `RN_RECEPCAO_DPS`. A recepção roda antes de existir
@@ -18,6 +18,20 @@ A pergunta original supunha que descobrir o perfil exige uma DPS aceita — que 
 
 Logo: **uma requisição, com o par SHA-256**. Recusa vinda da recepção significa servidor
 na 1.00; qualquer coisa além dela significa que a assinatura passou.
+
+## O que o probe responde, e o que ele não responde
+
+`Perfil` amarra **duas** coisas: a versão do leiaute, que vai no atributo `versao` da DPS,
+e o par de hash. O raciocínio acima decide o hash — é o eixo em que os dois schemas
+divergem de forma irreconciliável. A versão vai junto na mesma requisição, mas não é o que
+está sendo medido.
+
+Quase sempre isso não importa, porque o servidor responde sobre a assinatura antes de
+chegar à versão. Quando importa, importa muito: um servidor que recuse `versao="1.01"`
+por prazo expirado (E0001) responde pela camada de negócio, o que pela regra acima
+significaria "a assinatura passou, use 1.01" — recomendando exatamente a versão que ele
+acabou de recusar. Por isso E0001 tem tratamento próprio e devolve INDETERMINADO com as
+duas metades ditas em separado. Ver `CODIGOS_DE_VERSAO_RECUSADA`.
 
 ## O estrago deliberado
 
@@ -38,8 +52,9 @@ assinar. A assinatura cobre o documento estragado, que é exatamente o que se qu
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from enum import Enum
 
@@ -63,6 +78,9 @@ __all__ = [
     "NUMERO_PROBE",
     "CODIGO_SERVICO_PROBE",
     "CODIGOS_QUE_RECUSAM_O_PERFIL",
+    "CODIGOS_DE_DEFEITO_NOSSO",
+    "CODIGOS_DE_VERSAO_RECUSADA",
+    "FUSO_DO_PROBE",
     "PERFIL_DO_PROBE",
     "cnpj_do_certificado",
     "dps_do_probe",
@@ -97,22 +115,72 @@ PERFIL_DO_PROBE = PERFIL_101
 """O par enviado. É o SHA-256 porque é ele que o XSD 1.00 recusa — e é a recusa que
 carrega informação. Mandar SHA-1 primeiro passaria nos dois e não responderia nada."""
 
-CODIGOS_QUE_RECUSAM_O_PERFIL = frozenset({"E1235", "E0714", "E0717", "E0718"})
+CODIGOS_QUE_RECUSAM_O_PERFIL = frozenset({"E1235", "E0714"})
 """Os códigos que significam "este par de assinatura não serve".
 
-E1235 é a resposta esperada: falha de esquema, que é como o XSD 1.00 recusa `rsa-sha256`.
-Os três E07xx entram porque um servidor pode conferir a assinatura na camada de negócio
-em vez de na de esquema, e nesse caso a recusa chega com outro código — mas continua
-sendo a mesma resposta.
+E1235 é a resposta esperada e a única de alta confiança: falha de esquema, que é como o
+XSD 1.00 recusa `rsa-sha256`, e ela vem da recepção. E0714 ("Arquivo enviado com erro na
+assinatura") entra porque um servidor pode conferir a assinatura na camada de negócio em
+vez de na de esquema — e a nossa assinatura confere contra `verificar()` antes de sair,
+então "erro na assinatura" sobrando é o algoritmo.
 
-O resto da recepção **não** entra: E1225 (base64), E1228 (prefixo de namespace) ou E1229
-(UTF-8) significam que a nossa requisição está quebrada, não que o perfil foi recusado.
-Ler um desses como "então é o outro perfil" seria trocar um bug nosso por um fato falso.
+**E0717 e E0718 saíram daqui em 2026-08-25.** E0717 é "a assinatura é obrigatória" — o
+servidor não achou `Signature` nenhuma, que é defeito nosso de envelope, da mesma classe
+de E1228. E0718 é "a assinatura deve ser feita com o certificado do emitente" — o CNPJ
+que assinou não bate com o que emite, que é `cnpj_do_certificado` tendo pegado os dígitos
+errados, ou certificado de matriz para emitente filial. Nos dois casos o probe estaria
+transformando um bug nosso numa recomendação confiante de perfil, que é exatamente a
+troca que o resto deste módulo recusa fazer. Vão para `CODIGOS_DE_DEFEITO_NOSSO`.
+
+O resto da recepção também não entra: E1225 (base64), E1228 (prefixo de namespace) ou
+E1229 (UTF-8) significam que a nossa requisição está quebrada, não que o perfil foi
+recusado.
+"""
+
+CODIGOS_DE_DEFEITO_NOSSO = frozenset({"E0715", "E0716", "E0717", "E0718"})
+"""Recusas que falam do **nosso** certificado ou da nossa assinatura, não do perfil.
+
+E0715 (certificado inválido), E0716 (fora do padrão), E0717 (assinatura ausente) e E0718
+(assinante não é o emitente). Todas chegam pela camada de negócio, então sem esta lista
+cairiam no ramo "passou pela recepção" e virariam uma recomendação de perfil apoiada num
+certificado que o servidor acabou de recusar.
+"""
+
+CODIGOS_DE_VERSAO_RECUSADA = frozenset({"E0001"})
+"""O servidor recusou a **versão do leiaute**, não a assinatura.
+
+E0001 é "O prazo de aceitação da versão do leiaute da DPS expirou". Ele chega pela camada
+de negócio, o que significa que a assinatura passou pela recepção — mas devolver
+`PERFIL_101` aí seria recomendar `versao="1.01"` logo depois de o servidor dizer que não
+aceita essa versão.
+
+É o eixo que o probe **não** resolve numa requisição: `Perfil` amarra versão de leiaute e
+par de hash, e uma resposta separa os dois. Quando isso acontece o probe diz o que sabe e
+o que não sabe, em vez de escolher um dos dois perfis prontos.
+"""
+
+_FORMA_DE_REJEICAO = re.compile(r"^E\d{4}$")
+"""A forma dos códigos do Anexo I.
+
+Sem este filtro, um `"401"` de proxy ou um `"503"` de gateway — que `normalizar_mensagens`
+entrega como `codigo` igual a qualquer outro — cairia no ramo "chegou à regra de negócio"
+e viraria uma recomendação de perfil. `client.py` já mantém a mesma disciplina para
+separar rejeição de falha HTTP.
 """
 
 ORIGEM_RECEPCAO = "RN_RECEPCAO_DPS"
 
 _CAMINHO_OP_SIMP_NAC = ".//{*}infDPS/{*}prest/{*}regTrib/{*}opSimpNac"
+
+FUSO_DO_PROBE = timezone(timedelta(hours=-3))
+"""Fuso fixo para a DPS do probe, em vez do relógio local.
+
+`TSDateTimeUTC` só aceita deslocamento em horas inteiras, e `datetime.now().astimezone()`
+num host em Asia/Kolkata (+05:30) ou Australia/Adelaide (+09:30) produz meia hora — o que
+faria a fachada recusar a DPS e o probe morrer por causa do fuso da máquina, num
+diagnóstico que não tem nada a ver com isso. O documento é descartado de qualquer jeito,
+então nada aqui depende do relógio de parede local.
+"""
 
 
 class Veredito(Enum):
@@ -143,7 +211,21 @@ class ResultadoProbe:
     """Uma frase que explica a conclusão, para a saída do `doctor`."""
 
     chave_acesso: str = ""
-    """Preenchida só em `NOTA_GERADA`: a nota que precisa ser cancelada à mão."""
+    """Preenchida só em `NOTA_GERADA`: a nota que precisa ser cancelada à mão.
+
+    Vem **como o servidor mandou**, sem normalizar. Aqui existe um documento fiscal e o
+    que importa é o operador conseguir achá-lo; recusar a string por não ter 50 dígitos
+    exatos trocaria "a nota é esta" por uma exceção, que é a pior troca possível neste
+    ramo.
+    """
+
+    id_dps: str = ""
+    """O identificador da DPS que o probe mandou.
+
+    Também só em `NOTA_GERADA`, e é a rede de segurança da `chave_acesso`: quando o corpo
+    da resposta não traz chave em nenhum dos nomes conhecidos, é por aqui que
+    `chave_por_dps()` ainda acha a nota.
+    """
 
     def __str__(self) -> str:
         return self.motivo
@@ -156,10 +238,16 @@ def recusar_producao(ambiente: Ambiente) -> None:
     e for aceito por qualquer motivo que não previmos, o resultado é documento fiscal
     real — e cancelar é registro de evento, que esta versão não tem. O custo de recusar é
     o usuário trocar uma flag; o custo de aceitar é uma nota que não dá para desfazer.
+
+    É **lista de permissão**, não de negação. `Ambiente` tem dois membros hoje e um
+    `is Ambiente.PRODUCAO` daria no mesmo — mas o enum é API pública, e o dia em que
+    alguém acrescentar um terceiro ambiente a negação passa a liberar em silêncio. Numa
+    guarda cujo modo de falha é emitir documento fiscal, o padrão é falhar fechado.
     """
-    if ambiente is Ambiente.PRODUCAO:
+    if ambiente is not Ambiente.PRODUCAO_RESTRITA:
         raise ProbeEmProducaoError(
-            "O probe de assinatura envia uma DPS de verdade e não roda em produção. "
+            f"O probe de assinatura envia uma DPS de verdade e só roda em "
+            f"{Ambiente.PRODUCAO_RESTRITA.value}; recebi {ambiente.value}. "
             f"Use --ambiente {Ambiente.PRODUCAO_RESTRITA.value}."
         )
 
@@ -201,9 +289,9 @@ def dps_do_probe(cnpj: str, municipio: str, ambiente: Ambiente) -> DPS:
         ),
         serie=SERIE_PROBE,
         numero=NUMERO_PROBE,
-        competencia=date.today(),
+        competencia=datetime.now(FUSO_DO_PROBE).date(),
         municipio_emissor=municipio,
-        emitido_em=datetime.now().astimezone(),
+        emitido_em=datetime.now(FUSO_DO_PROBE),
         ambiente=ambiente,
     )
 
@@ -242,8 +330,16 @@ def classificar(codigos: tuple[str, ...]) -> ResultadoProbe:
     É o que faz o probe funcionar sem município conveniado: se o município não aderiu, a
     recusa que volta é de negócio — e negócio já significa que a assinatura passou pela
     recepção, que é a única coisa que o probe pergunta.
+
+    A ordem das quatro perguntas é deliberada, da mais específica para a mais geral:
+    recusou a assinatura? é defeito nosso? recusou a versão? aí sim, passou.
     """
-    recusaram = [c for c in codigos if c in CODIGOS_QUE_RECUSAM_O_PERFIL]
+    # Só a forma `E####` do anexo conta como resposta. Um `"401"` de proxy ou um `"503"`
+    # de gateway chegam pelo mesmo campo `codigo` e, sem este filtro, cairiam no ramo
+    # "chegou à regra de negócio" — respondendo um perfil com base num erro de rede.
+    conhecidos = tuple(c for c in codigos if _FORMA_DE_REJEICAO.match(c))
+
+    recusaram = [c for c in conhecidos if c in CODIGOS_QUE_RECUSAM_O_PERFIL]
     if recusaram:
         return ResultadoProbe(
             veredito=Veredito.PERFIL_ENCONTRADO,
@@ -255,7 +351,38 @@ def classificar(codigos: tuple[str, ...]) -> ResultadoProbe:
             ),
         )
 
-    da_recepcao = [c for c in codigos if _e_da_recepcao(c)]
+    nossos = [c for c in conhecidos if c in CODIGOS_DE_DEFEITO_NOSSO]
+    if nossos:
+        return ResultadoProbe(
+            veredito=Veredito.INDETERMINADO,
+            perfil=None,
+            codigos=codigos,
+            motivo=(
+                f"O servidor recusou o certificado ou a assinatura em si "
+                f"({', '.join(nossos)}), o que fala do que **nós** mandamos e não do "
+                "perfil. Confira se o certificado é ICP-Brasil, está válido, e se o CNPJ "
+                "dele é o do emitente."
+            ),
+        )
+
+    de_versao = [c for c in conhecidos if c in CODIGOS_DE_VERSAO_RECUSADA]
+    if de_versao:
+        return ResultadoProbe(
+            veredito=Veredito.INDETERMINADO,
+            perfil=None,
+            codigos=codigos,
+            motivo=(
+                f"Meia resposta: a assinatura {PERFIL_DO_PROBE.hash_hashlib} passou pela "
+                f"recepção, mas o servidor recusou a versão de leiaute "
+                f"{PERFIL_DO_PROBE.versao} ({', '.join(de_versao)}). Nenhum dos dois "
+                f"perfis prontos serve — {PERFIL_101.nome} tem a versão recusada e "
+                f"{PERFIL_100.nome} tem o hash que este servidor não precisa. O que "
+                f"parece servir é versão 1.00 com SHA-256, que não é perfil de fábrica. "
+                "Reporte o caso."
+            ),
+        )
+
+    da_recepcao = [c for c in conhecidos if _e_da_recepcao(c)]
     if da_recepcao:
         return ResultadoProbe(
             veredito=Veredito.INDETERMINADO,
@@ -267,15 +394,26 @@ def classificar(codigos: tuple[str, ...]) -> ResultadoProbe:
             ),
         )
 
-    if codigos:
+    if conhecidos:
         return ResultadoProbe(
             veredito=Veredito.PERFIL_ENCONTRADO,
             perfil=PERFIL_101,
             codigos=codigos,
             motivo=(
                 f"A assinatura {PERFIL_DO_PROBE.nome} passou pela recepção — o servidor "
-                f"chegou à regra de negócio e respondeu {', '.join(codigos)}. "
+                f"chegou à regra de negócio e respondeu {', '.join(conhecidos)}. "
                 f"Use o perfil {PERFIL_101.nome}."
+            ),
+        )
+
+    if codigos:
+        return ResultadoProbe(
+            veredito=Veredito.INDETERMINADO,
+            perfil=None,
+            codigos=codigos,
+            motivo=(
+                f"O servidor respondeu {', '.join(codigos)}, que não tem a forma `E####` "
+                "do anexo. Não é rejeição de leiaute, então não diz nada sobre o perfil."
             ),
         )
 

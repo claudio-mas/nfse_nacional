@@ -42,9 +42,11 @@ from nfse_sefin.convenio import consultar_convenio, valida_codigo_ibge
 from nfse_sefin.errors import (
     CertificadoIlegivelError,
     DadosInvalidosError,
+    NFSeError,
     ProbeEmProducaoError,
     TransporteError,
 )
+from nfse_sefin.perfis import PERFIL_PADRAO
 from nfse_sefin.probe import Veredito, recusar_producao
 from nfse_sefin.transport import Transporte
 
@@ -68,6 +70,13 @@ class CodigoSaida(IntEnum):
     ARGUMENTO_INVALIDO = 7
     PROBE_INDETERMINADO = 8
     PROBE_GEROU_NOTA = 9
+    PROBE_PERFIL_NAO_PADRAO = 10
+    """O probe respondeu, e a resposta **não** é o padrão da biblioteca.
+
+    Não é falha: é diagnóstico bem-sucedido com uma ação pendente. Merece código próprio
+    porque `0` faria um script de implantação registrar tudo certo e só descobrir na
+    primeira emissão que `NFSeClient(cert)` usa o perfil errado para este servidor.
+    """
 
 
 _OK = "OK  "
@@ -118,36 +127,63 @@ def _rodar_probe(
     Convênio **não** é pré-requisito: o probe classifica por camada de recusa, e
     município não aderente responde com código de negócio — que já é a resposta.
     """
-    with NFSeClient(certificado, ambiente=ambiente, transporte=transporte) as cliente:
-        try:
-            resultado = cliente.probe_assinatura(argumentos.municipio)
-        except DadosInvalidosError as exc:
-            # O probe parou antes de mandar qualquer coisa: certificado que não é
-            # e-CNPJ, ou o estrago deliberado que não pôde ser aplicado.
-            linha(_FALHA, "o probe não pôde ser montado")
-            print(f"\n  {exc}", file=saida)
-            return CodigoSaida.ARGUMENTO_INVALIDO
-        except TransporteError as exc:
-            linha(_FALHA, f"o probe não chegou a uma resposta: {exc}")
-            return CodigoSaida.ERRO_INESPERADO
+    # Sem `with`: o transporte é injetado, então `NFSeClient.close()` não faz nada e quem
+    # é dono dele é o `with Transporte(...)` de `_diagnosticar`. Um `with` aqui sugeriria
+    # posse que este objeto não tem, e convidaria alguém a implementá-la — fechando a
+    # conexão por baixo dos passos que ainda vêm depois.
+    cliente = NFSeClient(certificado, ambiente=ambiente, transporte=transporte)
+    try:
+        resultado = cliente.probe_assinatura(argumentos.municipio)
+    except DadosInvalidosError as exc:
+        # O probe parou antes de mandar qualquer coisa: certificado que não é
+        # e-CNPJ, ou o estrago deliberado que não pôde ser aplicado.
+        linha(_FALHA, "o probe não pôde ser montado")
+        print(f"\n  {exc}", file=saida)
+        return CodigoSaida.ARGUMENTO_INVALIDO
+    except TransporteError as exc:
+        linha(_FALHA, "o probe não chegou a uma resposta")
+        print(f"\n  {exc}", file=saida)
+        return CodigoSaida.ERRO_INESPERADO
+    except NFSeError as exc:
+        # `AssinaturaError` e `RespostaInvalidaError` são irmãs das duas acima e não
+        # descendem de nenhuma delas. Sem esta cláusula elas sobem como traceback de um
+        # comando cujo contrato inteiro é linha rotulada e código de saída distinto.
+        linha(_FALHA, f"o probe falhou: {type(exc).__name__}")
+        print(f"\n  {exc}", file=saida)
+        return CodigoSaida.ERRO_INESPERADO
 
     if resultado.veredito is Veredito.PERFIL_ENCONTRADO:
         assert resultado.perfil is not None  # garantido pelo veredito
         linha(_OK, f"perfil de assinatura aceito: {resultado.perfil.nome}")
         print(f"\n  {resultado.motivo}", file=saida)
+        if resultado.perfil is PERFIL_PADRAO:
+            return CodigoSaida.SUCESSO
+
+        # O padrão da biblioteca não serve neste servidor. Emitir sem passar `perfil=`
+        # vai falhar, então dizer só isso no texto não basta: um script de implantação lê
+        # o código de saída, e é para isso que `CodigoSaida` existe.
         print(
-            "\n  No código:"
+            "\n  Este NÃO é o perfil padrão da biblioteca "
+            f"({PERFIL_PADRAO.nome}). Emitir sem configurar vai falhar."
+            "\n\n  No código:"
             "\n    from nfse_sefin import NFSeClient, por_nome"
             f"\n    cliente = NFSeClient(cert, perfil=por_nome({resultado.perfil.nome!r}))",
             file=saida,
         )
-        return CodigoSaida.SUCESSO
+        return CodigoSaida.PROBE_PERFIL_NAO_PADRAO
 
     if resultado.veredito is Veredito.NOTA_GERADA:
         linha(_FALHA, "o probe gerou uma NFS-e — não deveria")
         print(f"\n  {resultado.motivo}", file=saida)
         if resultado.chave_acesso:
             print(f"\n  Chave a cancelar: {resultado.chave_acesso}", file=saida)
+        elif resultado.id_dps:
+            # Sem chave no corpo, o identificador da DPS é o que ainda acha a nota.
+            print(
+                "\n  A resposta não trouxe a chave. Ache a nota pela DPS:"
+                f"\n    cliente.chave_por_dps({resultado.id_dps!r})",
+                file=saida,
+            )
         return CodigoSaida.PROBE_GEROU_NOTA
 
     linha(_AVISO, "o probe não conseguiu decidir o perfil")
@@ -251,13 +287,19 @@ def _diagnosticar(argumentos: argparse.Namespace, saida: TextIO) -> CodigoSaida:
             linha(_OK, f"rota de convênio que respondeu: {convenio.caminho}")
 
         # ------------------------------------------- 5. qual assinatura o servidor aceita?
+        codigo_do_probe = CodigoSaida.SUCESSO
         if argumentos.probe_assinatura:
-            codigo = _rodar_probe(argumentos, certificado, ambiente, transporte, linha, saida)
-            if codigo is not CodigoSaida.SUCESSO:
-                return codigo
+            codigo_do_probe = _rodar_probe(
+                argumentos, certificado, ambiente, transporte, linha, saida
+            )
 
+        # Município não aderente vence o resultado do probe: sem convênio não se emite de
+        # jeito nenhum, e configurar o perfil certo não muda isso. O probe já relatou o
+        # que descobriu no texto — o código de saída fica com o bloqueio mais duro.
         if not convenio.aderido:
             return CodigoSaida.MUNICIPIO_NAO_ADERENTE
+        if codigo_do_probe is not CodigoSaida.SUCESSO:
+            return codigo_do_probe
 
     # ------------------------------------------------------ 6. bônus: o serviço
     if argumentos.servico:

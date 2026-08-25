@@ -41,7 +41,8 @@ aparece em `ps`; prefira `NFSE_PFX_SENHA` se precisar automatizar.
 O código de saída é distinto por causa, para script de implantação decidir sem parsear
 texto: `0` sucesso, `3` PKCS#12 ilegível, `4` certificado inválido, `5` mTLS recusado,
 `6` município não aderente, `7` argumento inválido, `8` probe indeciso, `9` probe gerou
-nota.
+nota, `10` probe achou um perfil que **não** é o padrão da biblioteca — diagnóstico
+bem-sucedido, mas emitir sem configurar `perfil=` vai falhar.
 
 ### Qual assinatura este servidor aceita
 
