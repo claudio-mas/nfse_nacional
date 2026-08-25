@@ -23,6 +23,7 @@ __all__ = [
     "MunicipioNaoAderente",
     "RejeicaoNFSe",
     "DadosInvalidosError",
+    "ProbeEmProducaoError",
 ]
 
 
@@ -154,6 +155,18 @@ class DadosInvalidosError(NFSeError):
     Só cobre o que é decidível offline (P7 no `DESIGN.md`): dígito verificador,
     formato, e as três regras de `totTrib` que dependem só de `opSimpNac`. Tudo que
     exige consulta continua sendo trabalho do servidor.
+    """
+
+
+class ProbeEmProducaoError(NFSeError):
+    """Tentaram rodar o probe de assinatura contra produção.
+
+    O probe envia uma DPS de verdade. Em produção restrita isso é o que o ambiente
+    existe para receber; em produção, uma DPS que passe vira documento fiscal — e
+    cancelar é registro de evento, que esta versão não tem.
+
+    Não há flag de override de propósito: o custo de recusar é trocar `--ambiente`, e o
+    custo de aceitar é uma nota que a biblioteca não sabe desfazer.
     """
 
 

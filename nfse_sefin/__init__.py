@@ -30,10 +30,14 @@ from nfse_sefin.facade import (
     TotalTributos,
     TributacaoISSQN,
 )
+from nfse_sefin.perfis import PERFIL_100, PERFIL_101, Perfil, por_nome
+from nfse_sefin.probe import ResultadoProbe, Veredito
 
 __all__ = [
     "BASES",
     "DPS",
+    "PERFIL_100",
+    "PERFIL_101",
     "Ambiente",
     "Bases",
     "Certificate",
@@ -41,16 +45,20 @@ __all__ = [
     "NFSeClient",
     "NotaFiscal",
     "OpcaoSimplesNacional",
+    "Perfil",
     "Prestador",
     "RegimeApuracaoSN",
     "RegimeEspecial",
+    "ResultadoProbe",
     "RetencaoISSQN",
     "Servico",
     "TipoEmitente",
     "Tomador",
     "TotalTributos",
     "TributacaoISSQN",
+    "Veredito",
     "bases_de",
     "buscar_servico",
+    "por_nome",
     "__version__",
 ]

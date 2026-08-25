@@ -476,6 +476,10 @@ fragmentação, não de escassez — uma quinta biblioteca tem custo social real
 porque tem 2 releases, 1 estrela e nenhum sinal de que o mantenedor quer co-manutenção.
 **Mas o custo de perguntar é 10 minutos** e continua sendo a primeira tarefa da lista.
 
+**Perguntado, e sem resposta.** A issue #3 ficou aberta de 2026-08-11 a 2026-08-25 sem
+retorno. O descarte deixou de ser hipótese e virou fato observado — ver o item 1 de
+"Next Steps".
+
 ## Recommended Approach
 
 **Approach C**, com a ordem de release da revisão 2 preservada (diagnóstico primeiro,
@@ -601,7 +605,8 @@ condicionais `X/V` na matriz de eventos, e zeros à esquerda perdidos (OQ5).
 
 ## Open Questions
 
-Restam cinco. Nenhuma é gate — todas as que bloqueavam código foram resolvidas.
+Restam quatro abertas — OQ5, OQ8/OQ9, OQ10 e OQ12. Nenhuma é gate: as que bloqueavam
+código foram resolvidas, e a OQ13 caiu em 2026-08-25 junto com metade da OQ12.
 
 **OQ5. Zeros à esquerda no catálogo de serviços.** O leiaute define `cTribNac` como 6 dígitos
 e o sample oficial usa `010101`, mas a tabela `MUN.INCID_INFO.SERV.` do Anexo I teve os
@@ -613,8 +618,19 @@ texto corrido ("subitens 07.02.01, 25.05") que precisa de normalizador próprio.
 **OQ8/OQ9. Geração do catálogo de rejeições.** `RN DPS_NFS-e` tem 656 linhas mas só **429**
 carregam código `E####` — usar 656 gera ~227 entradas vazias. Das 429, **228 têm a célula
 `CAMINHO NO XML` vazia** (o anexo só repete o caminho na primeira linha de cada grupo), então
-o gerador precisa de forward-fill. Pior: as 16 regras de `RN_RECEPCAO_DPS` estão numa tabela
+o gerador precisa de forward-fill. Pior: as regras de `RN_RECEPCAO_DPS` estão numa tabela
 **sem coluna de caminho XML nenhuma**. Portanto `RejeicaoNFSe.caminho_xml` é `Optional[str]`.
+
+**São 13 regras de recepção, não 16** (corrigido em 2026-08-25, ao construir o probe). O 16
+vinha do plano original e nunca foi conferido; varrer os códigos `E1###` da seção no anexo
+devolve exatamente `E1200`, `E1203`, `E1205`-`E1209`, `E1225`, `E1226`, `E1228`, `E1229`,
+`E1235` e `E1242`, que é o que o catálogo gerado tem. Mesma classe de erro que o 341→337 dos
+serviços: número herdado do plano, propagado por não ter sido recontado.
+
+**A faixa `E12##` não é a camada de recepção.** A recepção ocupa `E1200`-`E1242`, mas a faixa
+continua depois dela com regra de negócio — `E1260`, `E1263`, `E1268`, e daí até `E1297`.
+Quem quiser saber em que camada um código foi decidido tem de olhar a seção de origem, não o
+prefixo. É a razão de `Rejeicao.origem` existir, e é do que o probe depende.
 
 **OQ10. Política de pin do `nfelib`.** Recomendação mantida: pin exato até o v0.2.0, faixa
 depois que houver suíte de contrato. Ganha peso agora que `perfis.py` referencia dois
@@ -640,16 +656,72 @@ clássico (`1.2.840.113549.1.12.1.3` e `.1.6`) e escolhe a mensagem. Arquivo leg
 é senha incorreta". Nos dois casos a mensagem entrega o comando `openssl pkcs12` que
 separa os cenários. `Certificate.usa_cifras_legadas` expõe o mesmo sinal para o `doctor`.
 
-**OQ12. Infraestrutura de teste de integração — subiu de prioridade.** No Approach C isso
-deixou de ser só cobertura de teste: o probe de perfil do `doctor` é a feature de manchete e
-não pode ser validado sem um certificado ICP-Brasil A1 real e um município conveniado.
-Nenhum dos dois está confirmado como disponível. **É a maior dependência aberta do projeto.**
+**OQ12. Infraestrutura de teste de integração — segue aberta, mas encolheu.** No Approach C
+isso deixou de ser só cobertura de teste: o probe de perfil do `doctor` é a feature de
+manchete e não pode ser validado sem acesso real. **Continua sendo a maior dependência
+aberta do projeto.**
 
-**OQ13 (nova). O probe do `doctor` emite nota de teste — qual o efeito colateral?** Produção
-restrita é ambiente de teste, mas uma DPS aceita consome um `nDPS` da série usada e pode
-gerar NFS-e de teste que precise ser cancelada. Definir: série reservada para probe, política
-de limpeza, e o que acontece se o probe roda contra `Ambiente.PRODUCAO` por engano (proposta:
-recusar, sem exceção).
+**Encolheu pela metade em 2026-08-25, como consequência do OQ13.** Eram dois pré-requisitos,
+certificado ICP-Brasil A1 real **e** município conveniado. Só o primeiro sobrou. O probe
+classifica por **camada**, não por código: recusa de recepção (`E12xx`) significa que o par
+de assinatura foi rejeitado, e qualquer código de negócio significa que a assinatura passou.
+Município não aderente devolve código de negócio — o que já responde a pergunta do probe.
+Então o certificado é pré-requisito, porque sem ele o mTLS nem abre; o convênio não é.
+
+**~~OQ13 (nova). O probe do `doctor` emite nota de teste — qual o efeito colateral?~~
+RESOLVIDO em 2026-08-25. A pergunta tinha uma premissa errada: o probe não precisa emitir
+nota, e na forma especificada abaixo ele não emite.**
+
+A premissa era que descobrir o perfil exige uma DPS aceita — que a resposta útil é o `200`.
+Não é. Duas coisas já registradas neste documento, postas lado a lado, dão o resultado sem
+nota nenhuma:
+
+1. A forma estrita de assinatura da 1.00 valida sob **os dois** schemas; só o par de hash é
+   irreconciliável (seção "Assinatura (fecha OQ4)"). Então o probe varia um parâmetro só.
+2. `Schemas/1.00/xmldsig-core-schema.xsd` traz `fixed="...rsa-sha1"` e `fixed="...sha1"`.
+   Uma assinatura SHA-256 não é assinatura *inválida* ali — é **falha de esquema**, e falha
+   de esquema é E1235, regra de `RN_RECEPCAO_DPS`. A camada de recepção roda antes de
+   existir nota.
+
+Ou seja: **uma requisição só, com o par SHA-256, já discrimina.** Recusa vinda da recepção
+significa servidor na 1.00; qualquer coisa além dela significa que a assinatura passou.
+
+Falta fechar o ramo do "passou" sem gerar documento. A DPS do probe carrega para isso um
+**estrago deliberado**: `prest/regTrib/opSimpNac = 1` (Não Optante) **com** `indTotTrib`
+informado, o que é E0713. É a escolha certa porque essa regra é justamente uma das que o XSD
+não consegue expressar (achado de 9c, tabela do `totTrib`): o documento é schema-válido, passa
+pela recepção, e morre na regra de negócio — sempre, sem depender da parametrização do
+município nem de dado real do contribuinte.
+
+| resposta do servidor | leitura |
+|---|---|
+| E1235 (ou E0714 / E0717 / E0718) | recusou o par SHA-256 → **perfil 1.00 + RSA-SHA1** |
+| E0713, ou qualquer outro `E####` de negócio | assinatura passou → **perfil 1.01 + RSA-SHA256** |
+| `200` com nota gerada | **defeito do probe**, não resultado — ver contingência |
+
+As três respostas do OQ13, agora que o caminho normal não emite:
+
+**Série reservada: `49999`**, o topo da faixa de aplicativo próprio (1 a 49999). Vale
+registrar o que ela *não* resolve: `nDPS` é sequencial **do emitente**, não alocado pelo
+servidor, então DPS rejeitada não consome nada e o número é reusável. A série reservada
+existe só para o ramo de contingência — se um probe for aceito apesar do estrago, o
+documento nasce fora da numeração de produção do ERP, e não no meio dela.
+
+**Limpeza: manual na v0.2.0, e o documento diz isso em voz alta.** Cancelar é registro de
+evento, que é escopo do v0.3.0 — o probe do v0.2.0 **não tem como** se limpar, e fingir que
+tem seria pior. Na contingência ele reporta a chave de acesso, diz que a nota existe em
+produção restrita e precisa ser cancelada à mão no Emissor Web, e sai com código de saída
+próprio. Quando o v0.3.0 entrar, o probe passa a cancelar a própria nota e este parágrafo
+vira histórico.
+
+**`Ambiente.PRODUCAO`: recusa, sem flag de override.** Levanta antes de tocar a rede, e não
+existe `--force`. O estrago deliberado é cinto e suspensório, não prova: se o probe chegar em
+produção e for aceito por qualquer motivo que não previmos, o resultado é documento fiscal
+real. O custo de recusar é o usuário trocar uma flag; o custo de aceitar é uma nota que não
+dava para desfazer sozinho.
+
+As guardas de 9e passam por mutação como as anteriores: reintroduzir o estrago ausente,
+a recusa de produção e a classificação por camada tem que deixar a suíte vermelha nos três.
 
 ## Success Criteria
 
@@ -701,18 +773,23 @@ recusar, sem exceção).
 Sem gates. O caminho está livre para código.
 
 1. ~~**Abrir issue no `brans-nfe`** perguntando se o mantenedor quer co-manutenção.~~
-   **FEITO em 2026-08-11** — [badbrans/brans-nfe#3](https://github.com/badbrans/brans-nfe/issues/3).
-   Aguardando resposta. **Data de corte: 2026-08-25.** Sem resposta até lá, tratar como
-   "prefiro seguir sozinho" e continuar com biblioteca própria, sem reabrir a pergunta.
+   ~~**FEITO em 2026-08-11** — aguardando resposta até a data de corte de 2026-08-25.~~
+   **ENCERRADO em 2026-08-25: seguir sozinho.**
 
-   Contexto que pesa na leitura do silêncio: o repo teve o último push em 2026-06-10 e
-   nunca recebeu issue nem PR de fora — esta é a primeira interação externa da vida dele.
-   Silêncio é resultado provável e não deve travar mais nada.
+   A [issue #3](https://github.com/badbrans/brans-nfe/issues/3) foi aberta em 2026-08-11 e
+   completada em 2026-08-12 com o link do design público, o anúncio da v0.1.0 e a correção
+   do DANFSe que eu devia ao `client.py:239` dele. Chegou à data de corte aberta, sem
+   resposta e sem reação. O contexto previsto se confirmou: o repo segue sem push desde
+   2026-06-10 e a issue continua sendo a única interação externa da vida dele.
 
-   Se a resposta for boa, este design vira roadmap de um repo que já existe. O `brans-nfe`
-   já acertou transporte e assinatura (`transmitir()` sem retry, forma estrita no
-   `signer.py`), o que torna a conversa mais valiosa, não menos. A lacuna dele é catálogo
-   e diagnóstico — exatamente o que os itens 7 e 9 desta lista constroem.
+   **A pergunta está fechada e não se reabre.** `nfse-sefin` segue como biblioteca própria,
+   e este documento continua sendo o roadmap dela. A porta fica aberta do outro lado — se o
+   mantenedor responder um dia, a conversa recomeça de onde parou —, mas nada no roadmap
+   espera por isso, e nenhum item futuro deve ser escrito como contingente à resposta.
+
+   O que a decisão custa é o que já estava no cálculo: o `brans-nfe` acertou transporte e
+   assinatura antes, e duplicar esse trabalho foi o preço de não travar. O que ela preserva
+   é a lacuna que só este projeto cobre — catálogo e diagnóstico, os itens 7 e 9.
 2. **Resolver OQ12** — conseguir um certificado ICP-Brasil A1 e confirmar um município
    conveniado. É a maior dependência aberta e a única coisa que impede validar a feature de
    manchete. Comece por aqui em paralelo com o código.
@@ -818,7 +895,97 @@ Sem gates. O caminho está livre para código.
    | 9b | `catalogos/rejeicoes.py` | **feito** em 2026-08-11 (`7fd40fe`) |
    | 9c | `facade/` + `adapters/nfelib.py` | **feito** em 2026-08-17 |
    | 9d | `emitir` / `consultar` / `/dps/{id}` / `danfse` | **feito** em 2026-08-17 |
-   | 9e | `--probe-assinatura` | **próximo**, parcialmente travado no OQ12 |
+   | 9e | `--probe-assinatura` | **feito** em 2026-08-25 |
+
+   **9e entregue, e o v0.2.0 está completo em código.** `probe.py` monta a DPS, aplica o
+   estrago deliberado e classifica a resposta; `NFSeClient.probe_assinatura` costura com o
+   transporte; `nfse-doctor --probe-assinatura` relata. 409 testes verdes, `ruff` e
+   `mypy --strict` limpos.
+
+   O desenho é o que a OQ13 fechou: uma requisição, par SHA-256, DPS com estrago deliberado
+   que garante rejeição, classificação por camada de recusa. Não emite nota, e é testável
+   inteiro contra mock. O que ainda depende de certificado real é confirmar em campo qual
+   perfil a SEFIN aceita — que é o valor da feature para o usuário, não a condição para
+   escrevê-la.
+
+   ### Três achados de 9e
+
+   **A fachada impede montar o estrago, e isso está certo.** `DPS.__post_init__` aplica
+   E0713 localmente (é uma das três regras decidíveis offline de P7), então a DPS proibida
+   não passa pela fachada — que é o comportamento que se quer dela. O probe monta uma DPS
+   **válida** (MEI, cujo `indTotTrib` é padrão legítimo) e troca `opSimpNac` no XML já
+   serializado, **antes** de assinar. A assinatura cobre o documento estragado, que é
+   exatamente o que se quer testar.
+
+   O teste que trava isso verifica a assinatura do payload enviado. Se o estrago fosse
+   aplicado depois de assinar, o digest quebraria e o servidor recusaria por assinatura — que
+   o probe leria como "perfil recusado", devolvendo 1.00 sempre, sempre errado.
+
+   **O CNPJ sai do certificado, não de argumento.** E0718 exige que quem assina seja o
+   emitente. Um CNPJ digitado que não casasse com o certificado voltaria como erro de
+   assinatura, e o probe leria isso como resposta sobre o perfil. Sai do `CN`, que num
+   e-CNPJ ICP-Brasil é `RAZÃO SOCIAL:CNPJ`; e-CPF é recusado com essa explicação.
+
+   **Uma guarda de 9e nasceu vazia, de novo — e de novo a mutação pegou.** O teste que
+   deveria provar "classificar por seção do anexo, não por prefixo do código" parametrizava
+   `E1301`, e `E1301` não começa com `E12`: trocar a consulta ao catálogo por
+   `codigo.startswith("E12")` deixava a suíte inteira verde. Os códigos que separam de
+   verdade as duas implementações são `E1260` e `E1297` — negócio, com prefixo de recepção.
+   Entraram no teste, e a mutação passou a matar.
+
+   É a segunda vez no projeto que uma justificativa escrita para uma guarda se revela falsa
+   e a guarda continua certa por outro motivo. O padrão vale registrar: **a mutação não testa
+   só o código, testa o comentário.**
+
+   ### O que a revisão de código corrigiu, no mesmo dia
+
+   A primeira versão de 9e passou na suíte e mesmo assim respondia errado em quatro
+   cenários. Todos têm a mesma forma: **o probe tratava como resposta o que era defeito
+   nosso ou pergunta diferente.** É o modo de falha mais caro possível para esta feature,
+   porque o usuário grava a configuração errada e acredita nela.
+
+   **`Perfil` amarra dois eixos, e o probe só mede um.** `versao` vai no atributo da DPS
+   junto com o par de hash. Um servidor que recuse `versao="1.01"` por prazo expirado
+   responde E0001 — código de negócio —, e pela regra "negócio significa que a assinatura
+   passou" o probe recomendava `PERFIL_101`, ou seja, exatamente a versão que o servidor
+   acabou de recusar. Agora E0001 tem tratamento próprio e devolve as duas metades em
+   separado: a assinatura passou, a versão não serve, e nenhum dos dois perfis de fábrica
+   é a resposta — o que parece servir é 1.00 com SHA-256, que não é perfil pronto.
+
+   **E0717 e E0718 saíram do conjunto de recusa.** E0717 é "não achei assinatura nenhuma"
+   e E0718 é "quem assinou não é o emitente" — os dois são bug nosso, de envelope ou de
+   `cnpj_do_certificado`, da mesma classe do E1228 que o módulo já mandava para
+   INDETERMINADO. Mantê-los ali transformava defeito da biblioteca em recomendação
+   confiante. E0715 e E0716 entraram no mesmo balde pelo mesmo motivo.
+
+   **Código sem a forma `E####` não é rejeição.** Um `"401"` de proxy ou `"503"` de gateway
+   chegam pelo mesmo campo `codigo` e caíam no ramo "chegou à regra de negócio". O
+   `client.py` já mantinha `_CODIGO_DE_REJEICAO` para exatamente essa separação; o probe
+   não usava.
+
+   **Falha ambígua não é veredito.** `POST` que morre sem status podia ter gerado nota, e
+   o probe devolvia INDETERMINADO "o servidor recusou sem código" — escondendo a causa
+   real e o fato de que um documento fiscal pode existir. Agora segue o mesmo caminho de
+   `emitir`: exceção com o identificador da DPS e a instrução de não reenviar.
+
+   Mais três de menor porte, na mesma linha de falhar fechado: a recusa de produção virou
+   lista de **permissão** (`is not PRODUCAO_RESTRITA`), porque `Ambiente` é API pública e
+   um terceiro membro passaria em silêncio pela negação; a chave no ramo de contingência
+   sai crua, porque `normalizar_chave` levantando ali trocaria "a nota é esta" por "o probe
+   não pôde ser montado"; e a DPS do probe usa fuso fixo `-03:00`, porque
+   `datetime.now().astimezone()` num host em `+05:30` produz meia hora e a fachada recusa.
+
+   Oito mutações novas, oito matam. A do ambiente precisou de um teste que a suíte não
+   conseguia escrever antes: com dois membros na enum, lista de permissão e lista de
+   negação concordam em tudo que existe, então a mutação passava verde. O teste que separa
+   as duas usa uma enum-substituta representando o membro futuro — e ela precisa ser enum
+   de verdade, não `object()`, senão a guarda levanta `AttributeError` ao formatar a
+   mensagem e o teste passa pelo motivo errado.
+
+   O `doctor` ganhou `PROBE_PERFIL_NAO_PADRAO` (10). Perfil descoberto diferente do padrão
+   da biblioteca não é falha, mas também não é `0`: sair `0` faria um script de implantação
+   registrar tudo certo e só descobrir na primeira emissão que `NFSeClient(cert)` usa o
+   perfil errado para aquele servidor.
 
    **9c entregue.** A fachada monta, valida e assina uma DPS. A separação estrutural
    é verificada, não prometida: um teste importa `nfse_sefin.facade` num subprocesso
@@ -965,6 +1132,23 @@ Nada disso dependeu do OQ12: o `doctor` diagnostica sem emitir nota. O certifica
 real continua sendo pré-requisito só do `--probe-assinatura`, na v0.2.0.
 
 ## Histórico de revisão
+
+**Revisão 3.2 (2026-08-25)** — duas pendências fechadas, nenhuma decisão anterior revista:
+
+- **`brans-nfe` encerrado: seguir sozinho.** A issue #3 chegou à data de corte sem resposta.
+  A pergunta não se reabre, e nenhum item do roadmap fica contingente a ela.
+- **OQ13 resolvida, e a premissa dela caiu.** O probe de assinatura não precisa emitir nota:
+  o par SHA-256 recusado pela 1.00 falha no **esquema** (E1235, camada de recepção), e uma
+  DPS com estrago deliberado (E0713) fecha o outro ramo sem gerar documento. Definidas a
+  série reservada (`49999`), a limpeza (manual até o v0.3.0, dita em voz alta) e a recusa
+  dura de `Ambiente.PRODUCAO`, sem flag de override.
+- **OQ12 encolheu pela metade.** Como o probe classifica por camada de recusa e não por
+  código, município conveniado deixou de ser pré-requisito. Sobra o certificado real.
+- **9e entregue no mesmo dia.** `probe.py`, `NFSeClient.probe_assinatura` e
+  `nfse-doctor --probe-assinatura`. Com ele o v0.2.0 fica completo em código: 409 testes
+  verdes, `ruff` e `mypy --strict` limpos. Falta publicar.
+- **Recontagem: 13 regras de recepção, não 16**, e a faixa `E12##` não é a camada de
+  recepção — ela continua com regra de negócio a partir de `E1260`. Corrigido na OQ8/OQ9.
 
 **Revisão 3.1 (2026-08-11)** — correção pontual, sem mudança de decisão:
 

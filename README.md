@@ -40,7 +40,35 @@ aparece em `ps`; prefira `NFSE_PFX_SENHA` se precisar automatizar.
 
 O código de saída é distinto por causa, para script de implantação decidir sem parsear
 texto: `0` sucesso, `3` PKCS#12 ilegível, `4` certificado inválido, `5` mTLS recusado,
-`6` município não aderente, `7` argumento inválido.
+`6` município não aderente, `7` argumento inválido, `8` probe indeciso, `9` probe gerou
+nota, `10` probe achou um perfil que **não** é o padrão da biblioteca — diagnóstico
+bem-sucedido, mas emitir sem configurar `perfil=` vai falhar.
+
+### Qual assinatura este servidor aceita
+
+A quinta pergunta é a única cuja resposta não está em documento nenhum. As duas outras
+bibliotecas Python para esta API escolheram pares **opostos** — 1.00 com SHA-1 e 1.01 com
+SHA-256 — e as duas afirmam funcionar em produção. Esta não aposta: pergunta.
+
+```console
+$ nfse-doctor --pfx empresa.pfx --municipio 3304557 --probe-assinatura
+  ...
+  [OK  ] perfil de assinatura aceito: 1.00+SHA1
+
+  O servidor recusou 1.01+SHA256 com E1235. Use o perfil 1.00+SHA1.
+
+  No código:
+    from nfse_sefin import NFSeClient, por_nome
+    cliente = NFSeClient(cert, perfil=por_nome('1.00+SHA1'))
+```
+
+**Não gera nota.** A DPS que ele manda carrega um defeito de propósito que a SEFIN sempre
+recusa, e a resposta é lida pela **camada** em que a recusa aconteceu: falha de esquema é
+o XSD 1.00 rejeitando `rsa-sha256`; qualquer regra de negócio significa que a assinatura
+passou. Por isso o município nem precisa ser conveniado — não aderente também responde
+com regra de negócio. O desenho inteiro está em `nfse_sefin/probe.py`.
+
+Roda só em produção restrita, e não há flag para forçar em produção.
 
 ## Como biblioteca
 
