@@ -253,22 +253,31 @@ def recusar_producao(ambiente: Ambiente) -> None:
 
 
 def cnpj_do_certificado(certificado: Certificate) -> str:
-    """O CNPJ do titular, tirado do `CN`.
+    """O CNPJ do titular, para o `prest` da DPS do probe.
 
-    Num e-CNPJ ICP-Brasil o Common Name vem como `RAZAO SOCIAL:CNPJ`. É de lá que sai,
-    e não de um argumento de linha de comando, porque E0718 exige que quem assina seja o
-    emitente: um CNPJ digitado à mão que não case com o certificado devolveria erro de
-    assinatura e o probe leria isso como "perfil recusado".
+    Sai do certificado, e não de um argumento de linha de comando, porque E0718 exige que
+    quem assina seja o emitente: um CNPJ digitado à mão que não casasse devolveria erro de
+    assinatura, e o probe leria isso como resposta sobre o perfil.
+
+    Onde ele mora — e por que não é só o `CN` — está em `Certificate.cnpj`.
     """
-    _, separador, sufixo = certificado.cn.rpartition(":")
-    digitos = "".join(c for c in sufixo if c.isdigit())
-    if not separador or len(digitos) != 14:
+    cnpj = certificado.cnpj
+    if cnpj is not None:
+        return cnpj
+
+    if certificado.e_pessoa_fisica:
         raise DadosInvalidosError(
-            f"Não foi possível extrair o CNPJ do certificado. O CN é {certificado.cn!r}, "
-            "e o probe espera o formato 'RAZAO SOCIAL:CNPJ' de um e-CNPJ ICP-Brasil. "
-            "Certificado de pessoa física (e-CPF) não emite como prestador."
+            f"O certificado de {certificado.cn!r} é um e-CPF (OID 2.16.76.1.3.1). "
+            "Pessoa física não emite como prestador no Sistema Nacional; o probe precisa "
+            "de um e-CNPJ."
         )
-    return digitos
+
+    raise DadosInvalidosError(
+        f"Não achei CNPJ no certificado de {certificado.cn!r}. Um e-CNPJ ICP-Brasil traz "
+        "os 14 dígitos no otherName do SAN (OID 2.16.76.1.3.3) — é o que E1209 cobra —, e "
+        "normalmente também em 2.5.4.97 ou no CN, como 'RAZÃO SOCIAL:CNPJ'. Nenhum dos "
+        "três apareceu, então este certificado não identifica um emitente."
+    )
 
 
 def dps_do_probe(cnpj: str, municipio: str, ambiente: Ambiente) -> DPS:

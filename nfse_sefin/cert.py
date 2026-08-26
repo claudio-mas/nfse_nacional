@@ -49,7 +49,7 @@ from nfse_sefin.errors import (
 
 _HASHES: dict[str, type[hashes.HashAlgorithm]] = {"sha1": hashes.SHA1, "sha256": hashes.SHA256}
 
-__all__ = ["Certificate", "DIAS_AVISO_VENCIMENTO"]
+__all__ = ["Certificate", "DIAS_AVISO_VENCIMENTO", "OID_ICP_CNPJ", "OID_ICP_CPF"]
 
 DIAS_AVISO_VENCIMENTO = 30
 """Abaixo disto, `precisa_renovar` fica verdadeiro."""
@@ -65,6 +65,46 @@ _OIDS_LEGADOS: dict[str, bytes] = {
 
 def _tem_cifras_legadas(blob: bytes) -> bool:
     return any(oid in blob for oid in _OIDS_LEGADOS.values())
+
+
+OID_ICP_CNPJ = x509.ObjectIdentifier("2.16.76.1.3.3")
+"""`otherName` do SAN que carrega o CNPJ da pessoa jurídica (DOC-ICP-04).
+
+É o lugar **normativo**, e é o que o Anexo I nomeia em E1209: "Falta a extensão de CNPJ
+ou CPF no Certificado (OtherName - OID=2.16.76.1.3.3)". Quando a SEFIN procura o CNPJ do
+emitente, procura aqui.
+"""
+
+OID_ICP_CPF = x509.ObjectIdentifier("2.16.76.1.3.1")
+"""O equivalente para pessoa física. Só serve para dizer "isto é um e-CPF"."""
+
+_OID_ORGANIZATION_IDENTIFIER = x509.ObjectIdentifier("2.5.4.97")
+"""Onde o padrão mais novo põe o identificador da organização, como `CNPJ:00000000000000`."""
+
+_DIGITOS_CNPJ = 14
+
+
+def _catorze_digitos(texto: str) -> str:
+    """Extrai uma corrida de exatamente 14 dígitos, ou string vazia.
+
+    Vale para as três origens: `otherName` vem como DER cru (o valor de 14 dígitos ASCII
+    embrulhado num tipo de string, cujo prefixo tag+comprimento nunca é dígito ASCII),
+    `2.5.4.97` vem como `CNPJ:...` e o CN como `RAZÃO:...`. Um dígito-scan cobre as três
+    sem um parser ASN.1 — mesma pragmática que `_OIDS_LEGADOS` já usa neste módulo.
+
+    A corrida tem de ter **exatamente** 14: aceitar um prefixo de uma sequência maior
+    pegaria pedaço do bloco de 55 caracteres do e-CPF (OID .1) e devolveria lixo com cara
+    de CNPJ.
+    """
+    atual = ""
+    for caractere in texto + " ":
+        if caractere.isdigit():
+            atual += caractere
+            continue
+        if len(atual) == _DIGITOS_CNPJ:
+            return atual
+        atual = ""
+    return ""
 
 
 # `load_key_and_certificates` devolve uma união mais larga do que o PKCS#12 sabe
@@ -92,7 +132,9 @@ class Certificate:
     cn: str
     """Common Name do titular.
 
-    Num e-CNPJ ICP-Brasil vem no formato `RAZAO SOCIAL:CNPJ`.
+    Num e-CNPJ ICP-Brasil costuma vir no formato `RAZÃO SOCIAL:CNPJ`, mas isso é
+    **convenção**, não regra: existe certificado válido com CN sem o número. Para obter o
+    CNPJ use `cnpj`, que procura primeiro onde o padrão manda.
     """
 
     nao_antes: datetime
@@ -199,6 +241,67 @@ class Certificate:
     def validade(self) -> datetime:
         """Quando o certificado vence, em UTC."""
         return self.nao_depois
+
+    @property
+    def cnpj(self) -> str | None:
+        """O CNPJ do titular, em 14 dígitos, ou `None` se o certificado não trouxer.
+
+        Procura em três lugares, **nesta ordem de autoridade**:
+
+        1. `otherName` do SAN com `OID 2.16.76.1.3.3`. É o lugar normativo do DOC-ICP-04,
+           e é o que E1209 nomeia — quando a SEFIN procura o CNPJ do emitente, é aqui.
+        2. `2.5.4.97` (`organizationIdentifier`) no subject, como `CNPJ:00000000000000`.
+           É onde o padrão mais novo põe, e aparece em certificado gerado por ferramenta
+           moderna.
+        3. `CN`, na convenção `RAZÃO SOCIAL:CNPJ`.
+
+        A ordem importa porque as três podem discordar, e discordando vence a que a SEFIN
+        vai ler. Ler **só** o CN — que é o que este código fazia até 2026-08-25 — funciona
+        na maioria dos A1 reais por convenção, e falha em qualquer certificado que siga o
+        padrão sem repetir o CNPJ no CN.
+
+        Não valida dígito verificador: carregar nunca valida, e quem monta a DPS já passa
+        por `validar_cnpj`.
+        """
+        try:
+            san = self._certificado.extensions.get_extension_for_class(
+                x509.SubjectAlternativeName
+            ).value
+        except x509.ExtensionNotFound:
+            san = None
+
+        if san is not None:
+            for nome in san:
+                if isinstance(nome, x509.OtherName) and nome.type_id == OID_ICP_CNPJ:
+                    # O valor vem como DER cru; o embrulho não tem dígito ASCII.
+                    achado = _catorze_digitos(nome.value.decode("latin-1"))
+                    if achado:
+                        return achado
+
+        for oid in (_OID_ORGANIZATION_IDENTIFIER, NameOID.COMMON_NAME):
+            for atributo in self._certificado.subject.get_attributes_for_oid(oid):
+                valor = atributo.value
+                texto = valor if isinstance(valor, str) else valor.decode("utf-8", "replace")
+                achado = _catorze_digitos(texto)
+                if achado:
+                    return achado
+
+        return None
+
+    @property
+    def e_pessoa_fisica(self) -> bool:
+        """O certificado é um e-CPF (`otherName` com `OID 2.16.76.1.3.1`).
+
+        Serve para a mensagem de erro dizer "isto é e-CPF" em vez de "não achei CNPJ",
+        que são coisas diferentes para quem está tentando emitir.
+        """
+        try:
+            san = self._certificado.extensions.get_extension_for_class(
+                x509.SubjectAlternativeName
+            ).value
+        except x509.ExtensionNotFound:
+            return False
+        return any(isinstance(nome, x509.OtherName) and nome.type_id == OID_ICP_CPF for nome in san)
 
     @property
     def dias_para_vencer(self) -> int:
