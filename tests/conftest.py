@@ -46,10 +46,20 @@ OID_ICP_CPF = x509.ObjectIdentifier("2.16.76.1.3.1")
 OID_ORGANIZATION_IDENTIFIER = x509.ObjectIdentifier("2.5.4.97")
 
 
-def _octet_string(texto: str) -> bytes:
-    """DER `OCTET STRING`, que é como o CNPJ viaja no `otherName` do ICP-Brasil."""
+TAG_OCTET_STRING = 0x04
+TAG_PRINTABLE_STRING = 0x13
+
+
+def _der_string(texto: str, tag: int = TAG_PRINTABLE_STRING) -> bytes:
+    """O valor DER que vai dentro do `otherName`.
+
+    O tipo de string **varia entre emissores**: um `.pfx` de teste real trouxe
+    `PrintableString` (`0x13`), e este arquivo por um tempo só gerava `OCTET STRING`
+    (`0x04`) — o que teria deixado passar uma implementação que só soubesse ler um dos
+    dois. Por isso o tag é parâmetro, e as duas codificações têm fixture.
+    """
     bruto = texto.encode("ascii")
-    return bytes([0x04, len(bruto)]) + bruto
+    return bytes([tag, len(bruto)]) + bruto
 
 
 def _gerar_pfx(
@@ -61,6 +71,7 @@ def _gerar_pfx(
     cnpj_no_othername: str | None = None,
     cnpj_no_org_id: str | None = None,
     cpf_no_othername: str | None = None,
+    tag_othername: int = TAG_PRINTABLE_STRING,
 ) -> PfxGerado:
     """Um `.pfx` auto-assinado.
 
@@ -97,9 +108,11 @@ def _gerar_pfx(
 
     nomes_alternativos: list[x509.GeneralName] = []
     if cnpj_no_othername is not None:
-        nomes_alternativos.append(x509.OtherName(OID_ICP_CNPJ, _octet_string(cnpj_no_othername)))
+        nomes_alternativos.append(
+            x509.OtherName(OID_ICP_CNPJ, _der_string(cnpj_no_othername, tag_othername))
+        )
     if cpf_no_othername is not None:
-        nomes_alternativos.append(x509.OtherName(OID_ICP_CPF, _octet_string(cpf_no_othername)))
+        nomes_alternativos.append(x509.OtherName(OID_ICP_CPF, _der_string(cpf_no_othername)))
     if nomes_alternativos:
         construtor = construtor.add_extension(
             x509.SubjectAlternativeName(nomes_alternativos), critical=False
@@ -192,3 +205,18 @@ def pfx_org_id_discorda_do_cn() -> PfxGerado:
     teste nenhum — o `otherName` do certificado de três fontes decide antes.
     """
     return _gerar_pfx(cn="EMPRESA LTDA:11222333000181", cnpj_no_org_id="12345678000195")
+
+
+@pytest.fixture(scope="session")
+def pfx_othername_octet_string() -> PfxGerado:
+    """O mesmo CNPJ no `otherName`, mas embrulhado em `OCTET STRING` em vez de
+    `PrintableString`.
+
+    O tipo de string varia entre emissores, e uma implementação que reconhecesse só um
+    dos dois tags passaria despercebida enquanto as fixtures gerassem só esse.
+    """
+    return _gerar_pfx(
+        cn="EMPRESA OCTET LTDA",
+        cnpj_no_othername="12345678000195",
+        tag_othername=TAG_OCTET_STRING,
+    )

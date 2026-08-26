@@ -376,3 +376,14 @@ def test_bloco_de_55_digitos_do_e_cpf_nao_vira_cnpj() -> None:
     assert _catorze_digitos("1" * 14) == "1" * 14
     assert _catorze_digitos("CNPJ:12345678000195") == "12345678000195"
     assert _catorze_digitos("RAZAO 123:12345678000195 sobra 999") == "12345678000195"
+
+
+def test_othername_em_octet_string_tambem_le(pfx_othername_octet_string: PfxGerado) -> None:
+    """O embrulho DER varia entre emissores: `PrintableString` e `OCTET STRING`.
+
+    As duas fixtures existem porque um `.pfx` real usou `0x13` enquanto o `conftest`
+    gerava `0x04` — e um parser que soubesse só um dos dois teria passado no verde.
+    """
+    cert = Certificate.from_bytes(pfx_othername_octet_string.blob, pfx_othername_octet_string.senha)
+
+    assert cert.cnpj == "12345678000195"

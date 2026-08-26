@@ -1014,6 +1014,17 @@ Sem gates. O caminho está livre para código.
    entre `2.5.4.97` e CN não quebrava nada até haver um certificado em que os dois
    discordassem.
 
+   **O segundo `.pfx` de teste achou mais uma.** O `otherName` dele vem embrulhado em
+   `PrintableString` (`0x13`), e o `conftest` só gerava `OCTET STRING` (`0x04`). O
+   dígito-scan lê os dois — foi por isso que passou —, mas uma implementação que
+   verificasse o tag teria ficado verde contra fixture e quebrado contra certificado real.
+   O tag virou parâmetro da fixture e as duas codificações têm teste. Confirmado por
+   mutação: um parser preso ao `0x04` mata 3 testes.
+
+   Padrão que este par de achados fecha: **os dois vieram de um arquivo que este
+   repositório não gerou.** Fixture escrita pelo mesmo autor da implementação concorda com
+   ela por construção. Vale procurar, no resto da suíte, onde mais isso vale.
+
    **9c entregue.** A fachada monta, valida e assina uma DPS. A separação estrutural
    é verificada, não prometida: um teste importa `nfse_sefin.facade` num subprocesso
    e falha se `nfelib` aparecer em `sys.modules`.
