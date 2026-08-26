@@ -154,14 +154,30 @@ def test_cnpj_sai_do_common_name(certificado: Certificate) -> None:
     assert cnpj_do_certificado(certificado) == CNPJ_DO_PFX
 
 
-def test_certificado_sem_cnpj_no_cn_e_recusado(certificado: Certificate) -> None:
-    """e-CPF não emite como prestador, e o probe diz isso em vez de montar CNPJ vazio."""
-    import dataclasses
+def test_cnpj_sai_do_othername_quando_o_cn_nao_tem(pfx_cnpj_no_othername: Any) -> None:
+    """O certificado que a versão anterior recusava, e que é a forma normativa.
 
-    sem_cnpj = dataclasses.replace(certificado, cn="FULANO DE TAL")
+    Ler só o `CN` é convenção. O lugar que E1209 cobra é o `otherName` do SAN, e um
+    certificado que siga o padrão sem repetir o CNPJ no CN é perfeitamente válido.
+    """
+    cert = Certificate.from_bytes(pfx_cnpj_no_othername.blob, pfx_cnpj_no_othername.senha)
 
-    with pytest.raises(DadosInvalidosError, match="e-CNPJ"):
-        cnpj_do_certificado(sem_cnpj)
+    assert cnpj_do_certificado(cert) == "12345678000195"
+
+
+def test_e_cpf_tem_mensagem_propria(pfx_e_cpf: Any) -> None:
+    """ "Isto é e-CPF" e "não achei CNPJ" são problemas diferentes para quem vai emitir."""
+    cert = Certificate.from_bytes(pfx_e_cpf.blob, pfx_e_cpf.senha)
+
+    with pytest.raises(DadosInvalidosError, match="e-CPF"):
+        cnpj_do_certificado(cert)
+
+
+def test_certificado_sem_identificacao_nenhuma(pfx_sem_identificacao: Any) -> None:
+    cert = Certificate.from_bytes(pfx_sem_identificacao.blob, pfx_sem_identificacao.senha)
+
+    with pytest.raises(DadosInvalidosError, match="Não achei CNPJ"):
+        cnpj_do_certificado(cert)
 
 
 # ----------------------------------------------------- a DPS e o estrago

@@ -291,3 +291,99 @@ def test_dias_para_vencer_acompanha_a_validade(pfx_vencendo: PfxGerado) -> None:
     cert = Certificate.from_bytes(pfx_vencendo.blob, pfx_vencendo.senha)
     esperado = (pfx_vencendo.nao_depois - pfx_vencendo.nao_antes) - timedelta(days=-1)
     assert 0 <= cert.dias_para_vencer <= esperado.days
+
+
+# ------------------------------------------------- de onde sai o CNPJ
+
+# Um e-CNPJ ICP-Brasil pode trazer o CNPJ em três lugares, e eles nem sempre concordam.
+# O que decide é onde a SEFIN procura — E1209 nomeia o `otherName`, OID 2.16.76.1.3.3.
+
+
+def test_cnpj_do_othername(pfx_cnpj_no_othername: PfxGerado) -> None:
+    """O lugar normativo, mesmo quando o CN não repete o número."""
+    cert = Certificate.from_bytes(pfx_cnpj_no_othername.blob, pfx_cnpj_no_othername.senha)
+
+    assert cert.cnpj == "12345678000195"
+    assert not cert.e_pessoa_fisica
+
+
+def test_cnpj_do_organization_identifier(pfx_cnpj_so_no_org_id: PfxGerado) -> None:
+    """`2.5.4.97`, como `CNPJ:...` — o formato que ferramenta moderna gera."""
+    cert = Certificate.from_bytes(pfx_cnpj_so_no_org_id.blob, pfx_cnpj_so_no_org_id.senha)
+
+    assert cert.cnpj == "12345678000195"
+
+
+def test_cnpj_do_common_name(pfx_valido: PfxGerado) -> None:
+    """A convenção `RAZÃO SOCIAL:CNPJ`, que é o último recurso."""
+    cert = Certificate.from_bytes(pfx_valido.blob, pfx_valido.senha)
+
+    assert cert.cnpj == "12345678000195"
+
+
+def test_othername_vence_org_id_e_cn(pfx_cnpjs_discordantes: PfxGerado) -> None:
+    """A guarda que trava a **ordem**, não só a leitura.
+
+    Os três lugares trazem CNPJs diferentes e válidos. Vence o `otherName`, porque é onde
+    a SEFIN procura — ler qualquer um dos outros faria a DPS declarar um emitente que não
+    é o dono da assinatura, que é E0718.
+    """
+    cert = Certificate.from_bytes(pfx_cnpjs_discordantes.blob, pfx_cnpjs_discordantes.senha)
+
+    assert cert.cnpj == "12345678000195"
+    assert "11222333000181" in cert.cn, "o CN discordante continua lá, e perdeu"
+
+
+def test_e_cpf_nao_tem_cnpj(pfx_e_cpf: PfxGerado) -> None:
+    """e-CPF: o bloco do OID .1 tem 55 dígitos e não pode virar CNPJ por recorte."""
+    cert = Certificate.from_bytes(pfx_e_cpf.blob, pfx_e_cpf.senha)
+
+    assert cert.cnpj is None
+    assert cert.e_pessoa_fisica
+
+
+def test_sem_identificacao_devolve_none(pfx_sem_identificacao: PfxGerado) -> None:
+    """Carregar nunca valida: ausência de CNPJ é `None`, não exceção."""
+    cert = Certificate.from_bytes(pfx_sem_identificacao.blob, pfx_sem_identificacao.senha)
+
+    assert cert.cnpj is None
+    assert not cert.e_pessoa_fisica
+
+
+def test_org_id_vence_o_common_name(pfx_org_id_discorda_do_cn: PfxGerado) -> None:
+    """Sem `otherName`, `2.5.4.97` ainda vence o `CN`.
+
+    O `CN` é convenção de exibição e é o mais fácil de vir com número velho depois de uma
+    mudança societária; `2.5.4.97` é campo estruturado, feito para carregar identificador.
+    """
+    cert = Certificate.from_bytes(pfx_org_id_discorda_do_cn.blob, pfx_org_id_discorda_do_cn.senha)
+
+    assert cert.cnpj == "12345678000195"
+
+
+def test_bloco_de_55_digitos_do_e_cpf_nao_vira_cnpj() -> None:
+    """A corrida tem de ter **exatamente** 14 dígitos.
+
+    O `otherName` do e-CPF (OID .1) é um bloco de 55 dígitos colados. Aceitar prefixo de
+    uma corrida maior recortaria os 14 primeiros e devolveria um número com cara de CNPJ
+    que não é CNPJ de ninguém.
+    """
+    from nfse_sefin.cert import _catorze_digitos
+
+    assert _catorze_digitos("1" * 55) == ""
+    assert _catorze_digitos("1" * 15) == ""
+    assert _catorze_digitos("1" * 13) == ""
+    assert _catorze_digitos("1" * 14) == "1" * 14
+    assert _catorze_digitos("CNPJ:12345678000195") == "12345678000195"
+    assert _catorze_digitos("RAZAO 123:12345678000195 sobra 999") == "12345678000195"
+
+
+def test_othername_em_octet_string_tambem_le(pfx_othername_octet_string: PfxGerado) -> None:
+    """O embrulho DER varia entre emissores: `PrintableString` e `OCTET STRING`.
+
+    As duas fixtures existem porque um `.pfx` real usou `0x13` enquanto o `conftest`
+    gerava `0x04` — e um parser que soubesse só um dos dois teria passado no verde.
+    """
+    cert = Certificate.from_bytes(pfx_othername_octet_string.blob, pfx_othername_octet_string.senha)
+
+    assert cert.cnpj == "12345678000195"

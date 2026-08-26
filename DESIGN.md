@@ -987,6 +987,44 @@ Sem gates. O caminho está livre para código.
    registrar tudo certo e só descobrir na primeira emissão que `NFSeClient(cert)` usa o
    perfil errado para aquele servidor.
 
+   ### Onde mora o CNPJ do emitente (achado de 2026-08-25, com certificado real)
+
+   `cnpj_do_certificado` lia **só o `CN`**, na convenção `RAZÃO SOCIAL:CNPJ`. O primeiro
+   `.pfx` de teste gerado fora deste repositório expôs o problema: ele traz o CNPJ em
+   `2.5.4.97` (`organizationIdentifier`) e o CN sem número nenhum. O probe recusava um
+   certificado perfeitamente legível.
+
+   **O `DESIGN.md` já tinha a resposta, no catálogo, e ela não foi usada.** E1209 diz:
+   "Falta a extensão de CNPJ ou CPF no Certificado (**OtherName - OID=2.16.76.1.3.3**)".
+   Esse é o lugar normativo do DOC-ICP-04 e é onde a SEFIN procura. A convenção do CN é
+   difundida e costuma estar presente num A1 real — mas é a fonte menos autoritativa das
+   três, e foi a única implementada.
+
+   `Certificate.cnpj` agora procura em ordem de autoridade: `otherName` (2.16.76.1.3.3),
+   depois `2.5.4.97`, depois o `CN`. A ordem é testada com um certificado em que as três
+   discordam, porque quando discordam vence a que a SEFIN vai ler — escolher outra faria a
+   DPS declarar um emitente que não é o dono da assinatura, que é E0718.
+
+   **Por que passou:** o `conftest` gerava **só** CN no formato `RAZÃO:CNPJ`. Os testes
+   confirmavam a convenção que o próprio arquivo de fixtures escrevia, em vez de testar a
+   leitura. É o mesmo modo de falha das duas guardas vazias de 9e, numa camada acima:
+   **fixture que só produz o caso feliz é um teste que concorda consigo mesmo.**
+
+   Três mutações novas, e duas precisaram de fixture que não existia — trocar a ordem
+   entre `2.5.4.97` e CN não quebrava nada até haver um certificado em que os dois
+   discordassem.
+
+   **O segundo `.pfx` de teste achou mais uma.** O `otherName` dele vem embrulhado em
+   `PrintableString` (`0x13`), e o `conftest` só gerava `OCTET STRING` (`0x04`). O
+   dígito-scan lê os dois — foi por isso que passou —, mas uma implementação que
+   verificasse o tag teria ficado verde contra fixture e quebrado contra certificado real.
+   O tag virou parâmetro da fixture e as duas codificações têm teste. Confirmado por
+   mutação: um parser preso ao `0x04` mata 3 testes.
+
+   Padrão que este par de achados fecha: **os dois vieram de um arquivo que este
+   repositório não gerou.** Fixture escrita pelo mesmo autor da implementação concorda com
+   ela por construção. Vale procurar, no resto da suíte, onde mais isso vale.
+
    **9c entregue.** A fachada monta, valida e assina uma DPS. A separação estrutural
    é verificada, não prometida: um teste importa `nfse_sefin.facade` num subprocesso
    e falha se `nfelib` aparecer em `sys.modules`.
